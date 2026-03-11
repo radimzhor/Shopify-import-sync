@@ -1,0 +1,46 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: shopify_connector_db
+    environment:
+      POSTGRES_USER: mergado
+      POSTGRES_PASSWORD: mergado_dev
+      POSTGRES_DB: shopify_connector
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mergado"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Flask Application
+  web:
+    build: .
+    container_name: shopify_connector_web
+    ports:
+      - "5001:5000"
+    environment:
+      - FLASK_APP=main.py
+      - FLASK_ENV=development
+      - FLASK_DEBUG=true
+      - FLASK_SECRET_KEY=dev-secret-key
+      - DATABASE_URL=postgresql://mergado:mergado_dev@db:5432/shopify_connector
+      - MERGADO_CLIENT_ID=${MERGADO_CLIENT_ID}
+      - MERGADO_CLIENT_SECRET=${MERGADO_CLIENT_SECRET}
+      # When using Docker, app is on port 5001; redirect URI must match in Mergado app settings
+      - MERGADO_REDIRECT_URI=${MERGADO_REDIRECT_URI:-http://localhost:5001/auth/callback}
+      - LOG_LEVEL=DEBUG
+      - LOG_FORMAT=text
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: python main.py
+
+volumes:
+  postgres_data:

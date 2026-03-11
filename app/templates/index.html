@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Mergado Shopify Import & Sync - Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2><i class="fas fa-tachometer-alt"></i> Dashboard</h2>
+                <p class="text-muted mb-0">Welcome to your Mergado integration dashboard</p>
+            </div>
+            <div class="text-end">
+                <span class="badge bg-success fs-6">Connected to Mergado</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-info-circle"></i> Authentication Status</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-2"><strong>Status:</strong> <span class="text-success">✓ Connected to Mergado</span></p>
+                <p class="mb-2"><strong>Authentication Method:</strong> OAuth2 (Automatic)</p>
+                <p class="mb-2"><strong>Token Storage:</strong> localStorage</p>
+                <p class="mb-0"><small class="text-muted">You were automatically authenticated when the page loaded.</small></p>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-code"></i> API Integration Ready</h5>
+            </div>
+            <div class="card-body">
+                <p>Your Mergado integration is ready! You can now:</p>
+                <ul>
+                    <li>Fetch shop data from Mergado API</li>
+                    <li>Manage products and orders</li>
+                    <li>Access analytics and reports</li>
+                    <li>Automate e-commerce workflows</li>
+                </ul>
+                <div class="alert alert-info">
+                    <strong>Next Steps:</strong> Extend the <code>app/services/</code> directory to add Mergado API integrations and build powerful automation features.
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-rocket"></i> Getting Started</h5>
+            </div>
+            <div class="card-body">
+                <h6>1. Authentication (✓ Complete)</h6>
+                <p class="text-success mb-2">Automatic OAuth flow with Mergado Store</p>
+
+                <h6>2. API Integration (Next)</h6>
+                <p class="mb-2">Add Mergado API calls to fetch and manage data</p>
+
+                <h6>3. Data Processing (Future)</h6>
+                <p class="mb-2">Implement business logic and automation</p>
+
+                <h6>4. User Interface (Future)</h6>
+                <p class="mb-0">Build dashboards and management tools</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-cogs"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button onclick="location.reload()" class="btn btn-outline-primary">
+                        <i class="fas fa-sync"></i> Refresh Status
+                    </button>
+                    <button onclick="clearTokens()" class="btn btn-outline-warning">
+                        <i class="fas fa-sign-out-alt"></i> Sign Out
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-chart-line"></i> Integration Stats</h5>
+            </div>
+            <div class="card-body text-center">
+                <div class="display-4 text-primary mb-2">1</div>
+                <p class="mb-0">Active Integration</p>
+                <small class="text-muted">Mergado Store API</small>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-shield-alt"></i> Security</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li><i class="fas fa-check text-success me-2"></i>OAuth2 Authentication</li>
+                    <li><i class="fas fa-check text-success me-2"></i>Token Auto-Refresh</li>
+                    <li><i class="fas fa-check text-success me-2"></i>Secure localStorage</li>
+                    <li><i class="fas fa-check text-success me-2"></i>HTTPS Only</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-book"></i> Documentation</h5>
+            </div>
+            <div class="card-body">
+                <p>Learn how to extend this application:</p>
+                <ul class="list-unstyled">
+                    <li><a href="#api-integration">API Integration Guide</a></li>
+                    <li><a href="#adding-routes">Adding New Routes</a></li>
+                    <li><a href="#database-setup">Database Setup</a></li>
+                    <li><a href="#deployment">Production Deployment</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Clear tokens function for sign out
+    function clearTokens() {
+        if (confirm('Are you sure you want to sign out? You will need to re-authenticate to access the dashboard.')) {
+            authManager.clearTokens();
+            authManager.showAlert('Signed out successfully', 'info');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+    }
+
+    // Page-specific UI updates
+    window.updatePageUI = function() {
+        // Add any dashboard-specific updates here
+        console.log("Dashboard UI updated");
+    };
+</script>
+{% endblock %}

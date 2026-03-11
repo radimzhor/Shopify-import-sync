@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Projects - Mergado Shopify Import & Sync{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-4"><i class="fas fa-project-diagram"></i> Select Project</h1>
+            <p class="text-muted">Choose a Mergado project to configure for Shopify sync</p>
+        </div>
+    </div>
+
+    <!-- Shop Selection -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <label for="shop-select" class="form-label">Mergado Shop</label>
+            <input type="text" id="shop-id-input" class="form-control" placeholder="Enter Mergado Shop ID">
+            <small class="form-text text-muted">You can find your Shop ID in Mergado app URL</small>
+        </div>
+        <div class="col-md-6 d-flex align-items-end">
+            <button id="load-projects-btn" class="btn btn-primary" onclick="loadProjects()">
+                <i class="fas fa-search"></i> Load Projects
+            </button>
+        </div>
+    </div>
+
+    <!-- Projects List -->
+    <div id="projects-loading" style="display: none;">
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-2">Loading projects...</p>
+        </div>
+    </div>
+
+    <div id="projects-list" style="display: none;">
+        <div class="row" id="projects-container">
+        </div>
+    </div>
+
+    <div id="projects-empty" style="display: none;">
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> No projects found. Enter your Shop ID and click "Load Projects".
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentShopId = null;
+
+    async function loadProjects() {
+        const shopId = document.getElementById('shop-id-input').value.trim();
+        
+        if (!shopId) {
+            alert('Please enter a Shop ID');
+            return;
+        }
+        
+        currentShopId = shopId;
+        const token = window.authManager.getAccessToken();
+        
+        document.getElementById('projects-loading').style.display = 'block';
+        document.getElementById('projects-list').style.display = 'none';
+        document.getElementById('projects-empty').style.display = 'none';
+        
+        try {
+            const response = await fetch(`/api/project/shops/${shopId}/projects`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) throw new Error('Failed to load projects');
+            
+            const data = await response.json();
+            const projects = data.projects || [];
+            
+            const container = document.getElementById('projects-container');
+            container.innerHTML = '';
+            
+            if (projects.length === 0) {
+                document.getElementById('projects-loading').style.display = 'none';
+                document.getElementById('projects-empty').style.display = 'block';
+                return;
+            }
+            
+            projects.forEach(project => {
+                const card = document.createElement('div');
+                card.className = 'col-md-6 col-lg-4 mb-3';
+                card.innerHTML = `
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">${escapeHtml(project.name)}</h5>
+                            <p class="card-text">
+                                <small class="text-muted">ID: ${project.mergado_project_id}</small><br>
+                                <small class="text-muted">Format: ${project.output_format || 'N/A'}</small>
+                            </p>
+                        </div>
+                        <div class="card-footer">
+                            <button class="btn btn-primary btn-sm w-100" onclick="selectProject(${project.id})">
+                                <i class="fas fa-check"></i> Select Project
+                            </button>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+            
+            document.getElementById('projects-loading').style.display = 'none';
+            document.getElementById('projects-list').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Failed to load projects:', error);
+            alert('Failed to load projects: ' + error.message);
+            document.getElementById('projects-loading').style.display = 'none';
+        }
+    }
+    
+    function selectProject(projectId) {
+        localStorage.setItem('selected_project_id', projectId);
+        localStorage.setItem('selected_shop_id', currentShopId);
+        window.location.href = '/import';
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Internal Server Error - Mergado App{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card border-danger">
+            <div class="card-body text-center">
+                <div class="display-1 text-danger mb-3">
+                    <i class="fas fa-server"></i>
+                </div>
+                <h1 class="card-title">500 - Internal Server Error</h1>
+                <p class="card-text lead">Something went wrong on our end.</p>
+                <p class="text-muted">We're working to fix this issue. Please try again later.</p>
+                <div class="mt-4">
+                    <a href="{{ url_for('routes.index') }}" class="btn btn-primary">
+                        <i class="fas fa-home"></i> Go Home
+                    </a>
+                    <button onclick="history.back()" class="btn btn-secondary ms-2">
+                        <i class="fas fa-arrow-left"></i> Go Back
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {% if settings.flask_debug %}
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Debug Information</h5>
+            </div>
+            <div class="card-body">
+                <small class="text-muted">
+                    This is a server-side error. Check the application logs for details.
+                </small>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

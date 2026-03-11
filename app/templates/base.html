@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Mergado Shopify Import & Sync{% endblock %}</title>
+    
+    <!-- Mergado UI System (MUS) -->
+    <link rel="stylesheet" href="https://mus.mergado.com/css/mus.min.css">
+    
+    <!-- Bootstrap for grid and utilities -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .navbar-brand {
+            font-weight: bold;
+        }
+        .alert {
+            margin-bottom: 1rem;
+        }
+        .card {
+            margin-bottom: 1rem;
+        }
+        .auth-loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 60vh;
+            flex-direction: column;
+        }
+        .auth-loading .spinner-border {
+            width: 3rem;
+            height: 3rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/" onclick="navigateTo('/')">
+                <i class="fas fa-store"></i> Mergado Shopify Import & Sync
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/dashboard" onclick="navigateTo('/dashboard')">
+                            <i class="fas fa-home"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/projects" onclick="navigateTo('/projects')">
+                            <i class="fas fa-project-diagram"></i> Projects
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/import" onclick="navigateTo('/import')">
+                            <i class="fas fa-file-import"></i> Import
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/sync" onclick="navigateTo('/sync')">
+                            <i class="fas fa-sync"></i> Sync
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/import/logs" onclick="navigateTo('/import/logs')">
+                            <i class="fas fa-history"></i> Logs
+                        </a>
+                    </li>
+                </ul>
+                <div class="navbar-nav">
+                    <span id="auth-status-nav" class="navbar-text">
+                        <i class="fas fa-spinner fa-spin"></i> Initializing...
+                    </span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div id="auth-loading" class="auth-loading" style="display: block;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Authenticating...</span>
+        </div>
+        <h4>Initializing Authentication...</h4>
+        <p class="text-muted">Checking your login status...</p>
+    </div>
+
+    <div id="main-content" style="display: none;">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Mergado UI System (MUS) -->
+    <script src="https://mus.mergado.com/js/mus.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Authentication and Token Management -->
+    <script>
+        console.log("🔥 Authentication JavaScript loaded!");
+        
+        class AuthManager {
+            constructor() {
+                this.baseURL = window.location.origin;
+                console.log("🚀 AuthManager created");
+                this.init();
+            }
+
+            async init() {
+                try {
+                    console.log("🚀 AuthManager init starting...");
+                    
+                    // Check authentication status with timeout
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error("Timeout")), 5000)
+                    );
+                    
+                    const authPromise = this.checkAuthStatus();
+                    const isAuthenticated = await Promise.race([authPromise, timeoutPromise]);
+                    
+                    console.log("Auth check result:", isAuthenticated);
+                    
+                    if (!isAuthenticated) {
+                        console.log("Not authenticated, starting OAuth...");
+                        this.startOAuth();
+                    } else {
+                        console.log("Authenticated, showing content...");
+                        this.showAuthenticatedContent();
+                    }
+                    
+                } catch (error) {
+                    console.error("AuthManager init failed:", error);
+                    // On error, assume not authenticated and redirect
+                    console.log("Error occurred, redirecting to OAuth...");
+                    this.startOAuth();
+                }
+            }
+
+            // Check if user is authenticated
+            isAuthenticated() {
+                try {
+                    const token = localStorage.getItem('mergado_access_token');
+                    const expiresAt = localStorage.getItem('mergado_expires_at');
+                    
+                    console.log("Token check:", { token: !!token, expiresAt });
+                    
+                    if (!token || !expiresAt) {
+                        return false;
+                    }
+                    
+                    // Check if token is expired (with 5 min buffer)
+                    const now = Date.now() / 1000;
+                    const isValid = now < (parseInt(expiresAt) - 300);
+                    
+                    console.log("Token validity:", { now, expiresAt: parseInt(expiresAt), isValid });
+                    return isValid;
+                    
+                } catch (error) {
+                    console.error("isAuthenticated check failed:", error);
+                    return false;
+                }
+            }
+
+            // Get access token
+            getAccessToken() {
+                return localStorage.getItem('mergado_access_token');
+            }
+
+            // Get refresh token
+            getRefreshToken() {
+                return localStorage.getItem('mergado_refresh_token');
+            }
+
+            // Check authentication status
+            async checkAuthStatus() {
+                console.log("🔍 Checking authentication status...");
+                
+                if (this.isAuthenticated()) {
+                    console.log("✅ User has valid tokens");
+                    return true;
+                }
+                
+                const refreshToken = this.getRefreshToken();
+                if (refreshToken) {
+                    console.log("🔄 Attempting token refresh...");
+                    
+                    try {
+                        const refreshed = await this.refreshToken();
+                        if (refreshed) {
+                            console.log("✅ Token refresh successful");
+                            return true;
+                        }
+                    } catch (error) {
+                        console.error("Token refresh failed:", error);
+                    }
+                }
+                
+                console.log("❌ No valid authentication found");
+                return false;
+            }
+
+            // Refresh access token
+            async refreshToken() {
+                const refreshToken = this.getRefreshToken();
+                if (!refreshToken) return false;
+
+                try {
+                    const response = await fetch('/auth/refresh-token', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ refresh_token: refreshToken })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.setTokens(data);
+                        return true;
+                    }
+                    
+                    return false;
+                    
+                } catch (error) {
+                    console.error('Token refresh error:', error);
+                    return false;
+                }
+            }
+
+            // Store tokens
+            setTokens(tokens) {
+                try {
+                    localStorage.setItem('mergado_access_token', tokens.access_token);
+                    if (tokens.refresh_token) {
+                        localStorage.setItem('mergado_refresh_token', tokens.refresh_token);
+                    }
+                    localStorage.setItem('mergado_expires_at', tokens.expires_at);
+                    console.log("✅ Tokens stored successfully");
+                } catch (error) {
+                    console.error("Failed to store tokens:", error);
+                }
+            }
+
+            // Start OAuth flow
+            startOAuth() {
+                console.log("🔄 Starting OAuth redirect...");
+                this.updateNavStatus('<i class="fas fa-external-link-alt"></i> Connecting to Mergado...');
+                
+                // Brief delay to show status, then redirect
+                setTimeout(() => {
+                    try {
+                        window.location.replace('/auth/login');
+                    } catch (error) {
+                        console.error("OAuth redirect failed:", error);
+                        // Fallback: try regular location change
+                        window.location.href = '/auth/login';
+                    }
+                }, 500);
+            }
+
+            // Show authenticated content
+            showAuthenticatedContent() {
+                console.log("📱 Showing authenticated content...");
+                this.showAuthLoading(false);
+                this.updateNavStatus('<i class="fas fa-user-check text-success"></i> Connected to Mergado');
+            }
+
+            // Show/hide loading screen
+            showAuthLoading(show) {
+                const loading = document.getElementById('auth-loading');
+                const content = document.getElementById('main-content');
+                
+                loading.style.display = show ? 'flex' : 'none';
+                content.style.display = show ? 'none' : 'block';
+            }
+
+            // Update navigation status
+            updateNavStatus(html) {
+                const navStatus = document.getElementById('auth-status-nav');
+                if (navStatus) {
+                    navStatus.innerHTML = html;
+                }
+            }
+
+            // Show alert
+            showAlert(message, type = 'info') {
+                console.log(`Alert (${type}):`, message);
+                // Could implement alert display here if needed
+            }
+        }
+
+        // Initialize authentication when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log("DOM loaded, initializing AuthManager...");
+                window.authManager = new AuthManager();
+            });
+        } else {
+            console.log("DOM already loaded, initializing AuthManager...");
+            window.authManager = new AuthManager();
+        }
+
+        // Navigation helper
+        function navigateTo(path) {
+            console.log("Navigation requested to:", path);
+            window.location.href = path;
+        }
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

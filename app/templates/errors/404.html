@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Page Not Found - Mergado App{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card border-warning">
+            <div class="card-body text-center">
+                <div class="display-1 text-warning mb-3">
+                    <i class="fas fa-search"></i>
+                </div>
+                <h1 class="card-title">404 - Page Not Found</h1>
+                <p class="card-text lead">The page you're looking for doesn't exist.</p>
+                <p class="text-muted">It might have been moved, deleted, or you entered the wrong URL.</p>
+                <div class="mt-4">
+                    <a href="{{ url_for('routes.index') }}" class="btn btn-primary">
+                        <i class="fas fa-home"></i> Go Home
+                    </a>
+                    <button onclick="history.back()" class="btn btn-secondary ms-2">
+                        <i class="fas fa-arrow-left"></i> Go Back
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

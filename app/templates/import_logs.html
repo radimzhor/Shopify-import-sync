@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block title %}Import Logs - Mergado Shopify Import & Sync{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-4"><i class="fas fa-history"></i> Import History</h1>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <label for="filter-project" class="form-label">Filter by Project</label>
+                    <input type="number" id="filter-project" class="form-control" placeholder="Project ID (optional)">
+                    <button class="btn btn-primary mt-2" onclick="loadImportJobs()">
+                        <i class="fas fa-filter"></i> Apply Filter
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Jobs Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-list"></i> Import Jobs</h5>
+                </div>
+                <div class="card-body">
+                    <div id="jobs-loading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-2">Loading import jobs...</p>
+                    </div>
+                    
+                    <div id="jobs-table" style="display: none;">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Job ID</th>
+                                        <th>Project</th>
+                                        <th>Status</th>
+                                        <th>Total</th>
+                                        <th>Success</th>
+                                        <th>Failed</th>
+                                        <th>Skipped</th>
+                                        <th>Created At</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="jobs-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div id="jobs-empty" style="display: none;">
+                        <p class="text-center text-muted py-4">No import jobs found</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detailed Logs Modal -->
+    <div class="modal fade" id="logsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-list-ul"></i> Detailed Import Logs</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="modal-logs-loading" class="text-center py-4">
+                        <div class="spinner-border" role="status"></div>
+                    </div>
+                    <div id="modal-logs-content" style="display: none;">
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>Status</th>
+                                        <th>Shopify Product ID</th>
+                                        <th>Error</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modal-logs-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadImportJobs() {
+        const token = window.authManager.getAccessToken();
+        const projectFilter = document.getElementById('filter-project').value;
+        
+        let url = '/api/import/history?limit=50';
+        if (projectFilter) {
+            url += `&project_id=${projectFilter}`;
+        }
+        
+        document.getElementById('jobs-loading').style.display = 'block';
+        document.getElementById('jobs-table').style.display = 'none';
+        document.getElementById('jobs-empty').style.display = 'none';
+        
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) throw new Error('Failed to load jobs');
+            
+            const data = await response.json();
+            const jobs = data.jobs || [];
+            
+            const tbody = document.getElementById('jobs-tbody');
+            tbody.innerHTML = '';
+            
+            if (jobs.length === 0) {
+                document.getElementById('jobs-loading').style.display = 'none';
+                document.getElementById('jobs-empty').style.display = 'block';
+                return;
+            }
+            
+            jobs.forEach(job => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>#${job.id}</td>
+                    <td>${job.project_id}</td>
+                    <td>${getStatusBadge(job.status)}</td>
+                    <td>${job.total_count || 0}</td>
+                    <td><span class="badge bg-success">${job.success_count || 0}</span></td>
+                    <td><span class="badge bg-danger">${job.failed_count || 0}</span></td>
+                    <td><span class="badge bg-secondary">${job.skipped_count || 0}</span></td>
+                    <td>${formatDate(job.created_at)}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewJobLogs(${job.id})">
+                            <i class="fas fa-eye"></i> View
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" onclick="downloadJobLogs(${job.id})">
+                            <i class="fas fa-download"></i> CSV
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('jobs-loading').style.display = 'none';
+            document.getElementById('jobs-table').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Failed to load jobs:', error);
+            alert('Failed to load import jobs: ' + error.message);
+            document.getElementById('jobs-loading').style.display = 'none';
+        }
+    }
+
+    async function viewJobLogs(jobId) {
+        const token = window.authManager.getAccessToken();
+        const modal = new bootstrap.Modal(document.getElementById('logsModal'));
+        modal.show();
+        
+        document.getElementById('modal-logs-loading').style.display = 'block';
+        document.getElementById('modal-logs-content').style.display = 'none';
+        
+        try {
+            const response = await fetch(`/api/import/logs/${jobId}?limit=100`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) throw new Error('Failed to load logs');
+            
+            const data = await response.json();
+            const logs = data.logs || [];
+            
+            const tbody = document.getElementById('modal-logs-tbody');
+            tbody.innerHTML = '';
+            
+            logs.forEach(log => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${escapeHtml(log.product_identifier)}</td>
+                    <td>${getStatusBadge(log.status)}</td>
+                    <td>${log.shopify_product_id || '-'}</td>
+                    <td>${escapeHtml(log.error_message || '-')}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('modal-logs-loading').style.display = 'none';
+            document.getElementById('modal-logs-content').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Failed to load logs:', error);
+            alert('Failed to load detailed logs: ' + error.message);
+        }
+    }
+
+    async function downloadJobLogs(jobId) {
+        const token = window.authManager.getAccessToken();
+        window.location.href = `/api/import/logs/${jobId}/download?token=${token}`;
+    }
+
+    function getStatusBadge(status) {
+        const badges = {
+            'pending': '<span class="badge bg-secondary">Pending</span>',
+            'running': '<span class="badge bg-info">Running</span>',
+            'completed': '<span class="badge bg-success">Completed</span>',
+            'failed': '<span class="badge bg-danger">Failed</span>',
+            'success': '<span class="badge bg-success">Success</span>',
+            'skipped': '<span class="badge bg-secondary">Skipped</span>'
+        };
+        return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+    }
+
+    function formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleString();
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(() => {
+            if (window.authManager && window.authManager.isAuthenticated()) {
+                loadImportJobs();
+            }
+        }, 1000);
+    });
+</script>
+{% endblock %}

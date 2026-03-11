@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% block title %}Sync Configuration - Mergado Shopify Import & Sync{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-4"><i class="fas fa-sync"></i> Automatic Sync Configuration</h1>
+            <p class="text-muted">Configure automatic synchronization of stock and prices from Mergado to Shopify</p>
+        </div>
+    </div>
+
+    <!-- Project Selection -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <label for="sync-project-id" class="form-label">Project ID</label>
+                    <input type="number" id="sync-project-id" class="form-control" placeholder="Enter Project ID">
+                    <button class="btn btn-primary mt-2" onclick="loadSyncConfigs()">
+                        <i class="fas fa-search"></i> Load Configuration
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Configuration Forms -->
+    <div id="sync-configs-section" style="display: none;">
+        <div class="row">
+            <!-- Stock Sync -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5><i class="fas fa-boxes"></i> Stock Sync</h5>
+                    </div>
+                    <div class="card-body">
+                        <input type="hidden" id="stock-config-id">
+                        
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="stock-enabled">
+                                <label class="form-check-label" for="stock-enabled">
+                                    Enable automatic stock sync
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="stock-interval" class="form-label">Sync Interval (minutes)</label>
+                            <input type="number" id="stock-interval" class="form-control" value="60" min="15">
+                            <small class="text-muted">Minimum: 15 minutes</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Last Sync</label>
+                            <p class="text-muted" id="stock-last-sync">Never</p>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary" onclick="saveSyncConfig('stock')">
+                                <i class="fas fa-save"></i> Save Configuration
+                            </button>
+                            <button class="btn btn-success" onclick="executeSync('stock')">
+                                <i class="fas fa-play"></i> Run Now
+                            </button>
+                        </div>
+                        
+                        <div id="stock-status" class="mt-3" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Price Sync -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5><i class="fas fa-dollar-sign"></i> Price Sync</h5>
+                    </div>
+                    <div class="card-body">
+                        <input type="hidden" id="price-config-id">
+                        
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="price-enabled">
+                                <label class="form-check-label" for="price-enabled">
+                                    Enable automatic price sync
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="price-interval" class="form-label">Sync Interval (minutes)</label>
+                            <input type="number" id="price-interval" class="form-control" value="60" min="15">
+                            <small class="text-muted">Minimum: 15 minutes</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Last Sync</label>
+                            <p class="text-muted" id="price-last-sync">Never</p>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary" onclick="saveSyncConfig('price')">
+                                <i class="fas fa-save"></i> Save Configuration
+                            </button>
+                            <button class="btn btn-success" onclick="executeSync('price')">
+                                <i class="fas fa-play"></i> Run Now
+                            </button>
+                        </div>
+                        
+                        <div id="price-status" class="mt-3" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sync Logs -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-list"></i> Recent Sync Logs</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="sync-logs-loading" class="text-center py-4">
+                            <div class="spinner-border" role="status"></div>
+                        </div>
+                        
+                        <div id="sync-logs-table" style="display: none;">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Items Synced</th>
+                                            <th>Items Failed</th>
+                                            <th>Started At</th>
+                                            <th>Duration</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sync-logs-tbody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <div id="sync-logs-empty" style="display: none;">
+                            <p class="text-center text-muted py-4">No sync logs yet</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentProjectId = null;
+
+    async function loadSyncConfigs() {
+        const projectId = document.getElementById('sync-project-id').value;
+        
+        if (!projectId) {
+            alert('Please enter a Project ID');
+            return;
+        }
+        
+        currentProjectId = projectId;
+        const token = window.authManager.getAccessToken();
+        
+        try {
+            const response = await fetch(`/api/sync/config?project_id=${projectId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) throw new Error('Failed to load configs');
+            
+            const data = await response.json();
+            const configs = data.configs || [];
+            
+            configs.forEach(config => {
+                if (config.sync_type === 'stock') {
+                    document.getElementById('stock-config-id').value = config.id;
+                    document.getElementById('stock-enabled').checked = config.enabled;
+                    document.getElementById('stock-interval').value = config.interval_minutes;
+                    document.getElementById('stock-last-sync').textContent = 
+                        config.last_sync_at ? formatDate(config.last_sync_at) : 'Never';
+                } else if (config.sync_type === 'price') {
+                    document.getElementById('price-config-id').value = config.id;
+                    document.getElementById('price-enabled').checked = config.enabled;
+                    document.getElementById('price-interval').value = config.interval_minutes;
+                    document.getElementById('price-last-sync').textContent = 
+                        config.last_sync_at ? formatDate(config.last_sync_at) : 'Never';
+                }
+            });
+            
+            document.getElementById('sync-configs-section').style.display = 'block';
+            loadSyncLogs(projectId);
+            
+        } catch (error) {
+            console.error('Failed to load configs:', error);
+            alert('Failed to load sync configuration: ' + error.message);
+        }
+    }
+
+    async function saveSyncConfig(syncType) {
+        const token = window.authManager.getAccessToken();
+        const enabled = document.getElementById(`${syncType}-enabled`).checked;
+        const interval = document.getElementById(`${syncType}-interval`).value;
+        
+        try {
+            const response = await fetch('/api/sync/config', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    project_id: parseInt(currentProjectId),
+                    sync_type: syncType,
+                    enabled: enabled,
+                    interval_minutes: parseInt(interval)
+                })
+            });
+            
+            if (!response.ok) throw new Error('Failed to save config');
+            
+            const config = await response.json();
+            document.getElementById(`${syncType}-config-id`).value = config.id;
+            
+            const statusDiv = document.getElementById(`${syncType}-status`);
+            statusDiv.className = 'alert alert-success mt-3';
+            statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Configuration saved successfully';
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => statusDiv.style.display = 'none', 3000);
+            
+        } catch (error) {
+            console.error('Failed to save config:', error);
+            alert('Failed to save configuration: ' + error.message);
+        }
+    }
+
+    async function executeSync(syncType) {
+        const configId = document.getElementById(`${syncType}-config-id`).value;
+        
+        if (!configId) {
+            alert('Please save configuration first');
+            return;
+        }
+        
+        const token = window.authManager.getAccessToken();
+        const statusDiv = document.getElementById(`${syncType}-status`);
+        
+        statusDiv.className = 'alert alert-info mt-3';
+        statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+        statusDiv.style.display = 'block';
+        
+        try {
+            const response = await fetch('/api/sync/execute', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    config_id: parseInt(configId)
+                })
+            });
+            
+            if (!response.ok) throw new Error('Sync failed');
+            
+            const result = await response.json();
+            
+            statusDiv.className = 'alert alert-success mt-3';
+            statusDiv.innerHTML = `
+                <i class="fas fa-check-circle"></i> 
+                Sync completed: ${result.items_synced} synced, ${result.items_failed} failed
+            `;
+            
+            loadSyncLogs(currentProjectId);
+            
+        } catch (error) {
+            console.error('Sync failed:', error);
+            statusDiv.className = 'alert alert-danger mt-3';
+            statusDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> Sync failed: ${error.message}`;
+        }
+    }
+
+    async function loadSyncLogs(projectId) {
+        const token = window.authManager.getAccessToken();
+        
+        document.getElementById('sync-logs-loading').style.display = 'block';
+        document.getElementById('sync-logs-table').style.display = 'none';
+        document.getElementById('sync-logs-empty').style.display = 'none';
+        
+        try {
+            const response = await fetch(`/api/sync/logs?project_id=${projectId}&limit=20`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) throw new Error('Failed to load logs');
+            
+            const data = await response.json();
+            const logs = data.logs || [];
+            
+            const tbody = document.getElementById('sync-logs-tbody');
+            tbody.innerHTML = '';
+            
+            if (logs.length === 0) {
+                document.getElementById('sync-logs-loading').style.display = 'none';
+                document.getElementById('sync-logs-empty').style.display = 'block';
+                return;
+            }
+            
+            logs.forEach(log => {
+                const row = document.createElement('tr');
+                const duration = calculateDuration(log.started_at, log.finished_at);
+                
+                row.innerHTML = `
+                    <td><span class="badge bg-info">${log.sync_config_id}</span></td>
+                    <td>${getStatusBadge(log.status)}</td>
+                    <td><span class="badge bg-success">${log.items_synced || 0}</span></td>
+                    <td><span class="badge bg-danger">${log.items_failed || 0}</span></td>
+                    <td>${formatDate(log.started_at)}</td>
+                    <td>${duration}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('sync-logs-loading').style.display = 'none';
+            document.getElementById('sync-logs-table').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Failed to load sync logs:', error);
+            document.getElementById('sync-logs-loading').style.display = 'none';
+        }
+    }
+
+    function calculateDuration(startedAt, finishedAt) {
+        if (!startedAt || !finishedAt) return '-';
+        const start = new Date(startedAt);
+        const end = new Date(finishedAt);
+        const seconds = Math.floor((end - start) / 1000);
+        
+        if (seconds < 60) return `${seconds}s`;
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}m ${remainingSeconds}s`;
+    }
+
+    function getStatusBadge(status) {
+        const badges = {
+            'success': '<span class="badge bg-success">Success</span>',
+            'partial': '<span class="badge bg-warning">Partial</span>',
+            'failed': '<span class="badge bg-danger">Failed</span>'
+        };
+        return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+    }
+
+    function formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleString();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const savedProjectId = localStorage.getItem('selected_project_id');
+        if (savedProjectId) {
+            document.getElementById('sync-project-id').value = savedProjectId;
+        }
+    });
+</script>
+{% endblock %}

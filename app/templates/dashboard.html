@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Mergado Shopify Import & Sync{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-4"><i class="fas fa-home"></i> Dashboard</h1>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card border-primary">
+                <div class="card-body text-center">
+                    <i class="fas fa-project-diagram fa-3x text-primary mb-3"></i>
+                    <h3 id="total-projects">-</h3>
+                    <p class="text-muted">Active Projects</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-success">
+                <div class="card-body text-center">
+                    <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                    <h3 id="successful-imports">-</h3>
+                    <p class="text-muted">Successful Imports</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-info">
+                <div class="card-body text-center">
+                    <i class="fas fa-sync fa-3x text-info mb-3"></i>
+                    <h3 id="active-syncs">-</h3>
+                    <p class="text-muted">Active Syncs</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-warning">
+                <div class="card-body text-center">
+                    <i class="fas fa-clock fa-3x text-warning mb-3"></i>
+                    <h3 id="last-sync">-</h3>
+                    <p class="text-muted">Last Sync</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <button class="btn btn-primary btn-lg w-100" onclick="navigateTo('/projects')">
+                                <i class="fas fa-project-diagram"></i> Select Project
+                            </button>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <button class="btn btn-success btn-lg w-100" onclick="navigateTo('/import')">
+                                <i class="fas fa-file-import"></i> Import Products
+                            </button>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <button class="btn btn-info btn-lg w-100" onclick="navigateTo('/sync')">
+                                <i class="fas fa-sync"></i> Configure Sync
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Import Jobs -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><i class="fas fa-history"></i> Recent Imports</h5>
+                    <a href="/import/logs" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
+                <div class="card-body">
+                    <div id="recent-imports-loading" class="text-center py-4">
+                        <div class="spinner-border" role="status"></div>
+                        <p class="text-muted mt-2">Loading recent imports...</p>
+                    </div>
+                    <div id="recent-imports-content" style="display: none;">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Job ID</th>
+                                        <th>Project</th>
+                                        <th>Status</th>
+                                        <th>Success</th>
+                                        <th>Failed</th>
+                                        <th>Created At</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-imports-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="recent-imports-empty" style="display: none;">
+                        <p class="text-center text-muted py-4">No recent imports</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadDashboardData() {
+        const token = window.authManager.getAccessToken();
+        
+        try {
+            // Load recent imports
+            const response = await fetch('/api/import/history?limit=10', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) throw new Error('Failed to load imports');
+            
+            const data = await response.json();
+            const jobs = data.jobs || [];
+            
+            // Update stats
+            document.getElementById('successful-imports').textContent = 
+                jobs.filter(j => j.status === 'completed').length;
+            
+            // Update recent imports table
+            const tbody = document.getElementById('recent-imports-tbody');
+            tbody.innerHTML = '';
+            
+            if (jobs.length === 0) {
+                document.getElementById('recent-imports-loading').style.display = 'none';
+                document.getElementById('recent-imports-empty').style.display = 'block';
+            } else {
+                jobs.forEach(job => {
+                    const row = document.createElement('tr');
+                    const statusBadge = getStatusBadge(job.status);
+                    
+                    row.innerHTML = `
+                        <td>#${job.id}</td>
+                        <td>Project ${job.project_id}</td>
+                        <td>${statusBadge}</td>
+                        <td><span class="badge bg-success">${job.success_count || 0}</span></td>
+                        <td><span class="badge bg-danger">${job.failed_count || 0}</span></td>
+                        <td>${formatDate(job.created_at)}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+                document.getElementById('recent-imports-loading').style.display = 'none';
+                document.getElementById('recent-imports-content').style.display = 'block';
+            }
+            
+        } catch (error) {
+            console.error('Failed to load dashboard data:', error);
+            document.getElementById('recent-imports-loading').innerHTML = 
+                '<p class="text-danger">Failed to load data</p>';
+        }
+    }
+    
+    function getStatusBadge(status) {
+        const badges = {
+            'pending': '<span class="badge bg-secondary">Pending</span>',
+            'running': '<span class="badge bg-info">Running</span>',
+            'completed': '<span class="badge bg-success">Completed</span>',
+            'failed': '<span class="badge bg-danger">Failed</span>'
+        };
+        return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+    }
+    
+    function formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleString();
+    }
+    
+    // Load data when authenticated
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(() => {
+            if (window.authManager && window.authManager.isAuthenticated()) {
+                loadDashboardData();
+            }
+        }, 1000);
+    });
+</script>
+{% endblock %}

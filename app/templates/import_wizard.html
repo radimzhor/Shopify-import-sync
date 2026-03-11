@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+{% block title %}Import Products - Mergado Shopify Import & Sync{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-4"><i class="fas fa-file-import"></i> Import Products to Shopify</h1>
+        </div>
+    </div>
+
+    <!-- Step 1: Preview -->
+    <div id="step-preview" class="card mb-4">
+        <div class="card-header">
+            <h5><i class="fas fa-eye"></i> Step 1: Preview Import</h5>
+        </div>
+        <div class="card-body">
+            <p>Generate a preview of products that will be imported to Shopify.</p>
+            
+            <div id="selected-project-info" class="alert alert-info">
+                <i class="fas fa-info-circle"></i> Project ID: <span id="project-id-display">-</span>
+            </div>
+            
+            <button id="generate-preview-btn" class="btn btn-primary" onclick="generatePreview()">
+                <i class="fas fa-search"></i> Generate Preview
+            </button>
+            
+            <div id="preview-loading" style="display: none;" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-2">Analyzing products...</p>
+            </div>
+            
+            <div id="preview-results" style="display: none;" class="mt-4">
+                <h6>Import Preview:</h6>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="alert alert-success">
+                            <strong id="create-count">0</strong> products to create
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert alert-warning">
+                            <strong id="update-count">0</strong> products to update
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert alert-secondary">
+                            <strong id="skip-count">0</strong> products to skip
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-success btn-lg" onclick="startImport()">
+                    <i class="fas fa-play"></i> Start Import
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: Import Progress -->
+    <div id="step-import" class="card mb-4" style="display: none;">
+        <div class="card-header">
+            <h5><i class="fas fa-spinner fa-spin"></i> Step 2: Importing...</h5>
+        </div>
+        <div class="card-body">
+            <div class="progress mb-3" style="height: 30px;">
+                <div id="import-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" style="width: 0%">
+                    0%
+                </div>
+            </div>
+            
+            <div class="row text-center">
+                <div class="col-3">
+                    <div class="alert alert-info">
+                        <strong id="progress-total">0</strong>
+                        <br><small>Total</small>
+                    </div>
+                </div>
+                <div class="col-3">
+                    <div class="alert alert-success">
+                        <strong id="progress-success">0</strong>
+                        <br><small>Success</small>
+                    </div>
+                </div>
+                <div class="col-3">
+                    <div class="alert alert-danger">
+                        <strong id="progress-failed">0</strong>
+                        <br><small>Failed</small>
+                    </div>
+                </div>
+                <div class="col-3">
+                    <div class="alert alert-secondary">
+                        <strong id="progress-skipped">0</strong>
+                        <br><small>Skipped</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="import-status-message" class="alert alert-info">
+                <i class="fas fa-info-circle"></i> Import in progress...
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3: Writeback -->
+    <div id="step-writeback" class="card mb-4" style="display: none;">
+        <div class="card-header">
+            <h5><i class="fas fa-arrow-left"></i> Step 3: Write Shopify IDs Back to Mergado</h5>
+        </div>
+        <div class="card-body">
+            <p>Write the Shopify product IDs back to your Mergado project for future syncs.</p>
+            
+            <button id="writeback-btn" class="btn btn-primary" onclick="startWriteback()">
+                <i class="fas fa-sync"></i> Write Back IDs
+            </button>
+            
+            <div id="writeback-loading" style="display: none;" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-2">Writing back Shopify IDs...</p>
+            </div>
+            
+            <div id="writeback-result" style="display: none;" class="mt-3">
+            </div>
+        </div>
+    </div>
+
+    <!-- Completion -->
+    <div id="step-complete" class="card mb-4" style="display: none;">
+        <div class="card-header bg-success text-white">
+            <h5><i class="fas fa-check-circle"></i> Import Complete!</h5>
+        </div>
+        <div class="card-body">
+            <p>Your products have been successfully imported to Shopify.</p>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary" onclick="navigateTo('/import/logs')">
+                    <i class="fas fa-list"></i> View Detailed Logs
+                </button>
+                <button class="btn btn-secondary" onclick="location.reload()">
+                    <i class="fas fa-redo"></i> Import More Products
+                </button>
+                <button class="btn btn-info" onclick="navigateTo('/sync')">
+                    <i class="fas fa-sync"></i> Configure Auto-Sync
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentJobId = null;
+    let currentProjectId = null;
+    let currentShopId = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        currentProjectId = localStorage.getItem('selected_project_id');
+        currentShopId = localStorage.getItem('selected_shop_id');
+        
+        if (!currentProjectId || !currentShopId) {
+            alert('Please select a project first');
+            window.location.href = '/projects';
+            return;
+        }
+        
+        document.getElementById('project-id-display').textContent = currentProjectId;
+    });
+
+    async function generatePreview() {
+        const token = window.authManager.getAccessToken();
+        
+        document.getElementById('generate-preview-btn').disabled = true;
+        document.getElementById('preview-loading').style.display = 'block';
+        document.getElementById('preview-results').style.display = 'none';
+        
+        try {
+            const response = await fetch('/api/import/preview', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    project_id: currentProjectId,
+                    shop_id: currentShopId
+                })
+            });
+            
+            if (!response.ok) throw new Error('Preview failed');
+            
+            const data = await response.json();
+            
+            document.getElementById('create-count').textContent = data.products_to_create || 0;
+            document.getElementById('update-count').textContent = data.products_to_update || 0;
+            document.getElementById('skip-count').textContent = data.products_to_skip || 0;
+            
+            document.getElementById('preview-loading').style.display = 'none';
+            document.getElementById('preview-results').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Preview failed:', error);
+            alert('Failed to generate preview: ' + error.message);
+            document.getElementById('preview-loading').style.display = 'none';
+        } finally {
+            document.getElementById('generate-preview-btn').disabled = false;
+        }
+    }
+
+    async function startImport() {
+        const token = window.authManager.getAccessToken();
+        
+        try {
+            const response = await fetch('/api/import/start', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    project_id: currentProjectId,
+                    shop_id: currentShopId
+                })
+            });
+            
+            if (!response.ok) throw new Error('Failed to start import');
+            
+            const data = await response.json();
+            currentJobId = data.job_id;
+            
+            document.getElementById('step-preview').style.display = 'none';
+            document.getElementById('step-import').style.display = 'block';
+            
+            streamImportProgress(currentJobId);
+            
+        } catch (error) {
+            console.error('Failed to start import:', error);
+            alert('Failed to start import: ' + error.message);
+        }
+    }
+
+    async function streamImportProgress(jobId) {
+        const token = window.authManager.getAccessToken();
+        const eventSource = new EventSource(`/api/import/progress/${jobId}?token=${token}`);
+        
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            if (data.status === 'completed') {
+                updateProgress(data);
+                eventSource.close();
+                showWritebackStep();
+            } else if (data.status === 'failed') {
+                eventSource.close();
+                showError(data.error);
+            } else {
+                updateProgress(data);
+            }
+        };
+        
+        eventSource.onerror = function(error) {
+            console.error('SSE error:', error);
+            eventSource.close();
+        };
+    }
+
+    function updateProgress(data) {
+        if (data.percent) {
+            const progressBar = document.getElementById('import-progress-bar');
+            progressBar.style.width = data.percent + '%';
+            progressBar.textContent = data.percent + '%';
+        }
+        
+        if (data.total) document.getElementById('progress-total').textContent = data.total;
+        if (data.success !== undefined) document.getElementById('progress-success').textContent = data.success;
+        if (data.failed !== undefined) document.getElementById('progress-failed').textContent = data.failed;
+        if (data.skipped !== undefined) document.getElementById('progress-skipped').textContent = data.skipped;
+    }
+
+    function showWritebackStep() {
+        document.getElementById('step-import').querySelector('.card-header').innerHTML = 
+            '<h5><i class="fas fa-check-circle text-success"></i> Import Complete</h5>';
+        document.getElementById('import-status-message').className = 'alert alert-success';
+        document.getElementById('import-status-message').innerHTML = 
+            '<i class="fas fa-check-circle"></i> All products imported successfully!';
+        
+        document.getElementById('step-writeback').style.display = 'block';
+    }
+
+    async function startWriteback() {
+        const token = window.authManager.getAccessToken();
+        
+        document.getElementById('writeback-btn').disabled = true;
+        document.getElementById('writeback-loading').style.display = 'block';
+        
+        try {
+            const response = await fetch(`/api/import/writeback/${currentJobId}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) throw new Error('Writeback failed');
+            
+            const data = await response.json();
+            
+            document.getElementById('writeback-loading').style.display = 'none';
+            
+            const resultDiv = document.getElementById('writeback-result');
+            if (data.success) {
+                resultDiv.className = 'alert alert-success';
+                resultDiv.innerHTML = `
+                    <i class="fas fa-check-circle"></i> 
+                    ${data.message} (${data.mappings_count} products)
+                `;
+            } else {
+                resultDiv.className = 'alert alert-warning';
+                resultDiv.innerHTML = `
+                    <i class="fas fa-exclamation-triangle"></i> 
+                    ${data.message}
+                `;
+            }
+            resultDiv.style.display = 'block';
+            
+            document.getElementById('step-complete').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Writeback failed:', error);
+            document.getElementById('writeback-loading').style.display = 'none';
+            alert('Writeback failed: ' + error.message);
+        }
+    }
+
+    function showError(message) {
+        document.getElementById('import-status-message').className = 'alert alert-danger';
+        document.getElementById('import-status-message').innerHTML = 
+            `<i class="fas fa-exclamation-circle"></i> Import failed: ${message}`;
+    }
+</script>
+{% endblock %}

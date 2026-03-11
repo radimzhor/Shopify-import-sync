@@ -1,0 +1,38 @@
+services:
+  # Web Service
+  - type: web
+    name: mergado-shopify-connector
+    runtime: python
+    region: frankfurt
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app --workers 2 --threads 4 --bind 0.0.0.0:$PORT --timeout 300 --log-level info
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_DEBUG
+        value: false
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shopify-connector-db
+          property: connectionString
+      - key: MERGADO_CLIENT_ID
+        sync: false
+      - key: MERGADO_CLIENT_SECRET
+        sync: false
+      - key: MERGADO_REDIRECT_URI
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: json
+    healthCheckPath: /health
+
+  # Database
+databases:
+  - name: shopify-connector-db
+    databaseName: shopify_connector
+    plan: starter
+    region: frankfurt
