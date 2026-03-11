@@ -247,19 +247,23 @@
                 }
             }
 
-            // Start OAuth flow
+            // Start OAuth flow (preserve entity_id/entity_type/state from URL for Store extensions)
             startOAuth() {
                 console.log("🔄 Starting OAuth redirect...");
                 this.updateNavStatus('<i class="fas fa-external-link-alt"></i> Connecting to Mergado...');
-                
-                // Brief delay to show status, then redirect
+                const params = new URLSearchParams(window.location.search);
+                const passthrough = new URLSearchParams();
+                ['entity_id', 'entity_type', 'state'].forEach(key => {
+                    if (params.has(key)) passthrough.set(key, params.get(key));
+                });
+                const query = passthrough.toString();
+                const loginUrl = '/auth/login' + (query ? '?' + query : '');
                 setTimeout(() => {
                     try {
-                        window.location.replace('/auth/login');
+                        window.location.replace(loginUrl);
                     } catch (error) {
                         console.error("OAuth redirect failed:", error);
-                        // Fallback: try regular location change
-                        window.location.href = '/auth/login';
+                        window.location.href = loginUrl;
                     }
                 }, 500);
             }

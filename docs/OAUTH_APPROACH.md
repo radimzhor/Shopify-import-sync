@@ -40,7 +40,7 @@ The `AuthManager` JavaScript class:
 
 Three simple endpoints:
 
-1. **`GET /auth/login`** - Redirects to Mergado OAuth
+1. **`GET /auth/login`** - Redirects to Mergado OAuth. For Store extensions (shop/project app type), Mergado requires `entity_id` in the authorize request; the app accepts `entity_id` and `entity_type` from the query string and forwards them. The frontend and the server-side redirect to login preserve these params when sending the user to `/auth/login`.
 2. **`GET /auth/callback`** - Exchanges code, returns HTML with JS to store tokens
 3. **`POST /auth/refresh-token`** - Accepts refresh_token, returns new tokens
 
