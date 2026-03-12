@@ -260,7 +260,22 @@ class ShopifyCSVParser:
         Returns:
             List of ShopifyProduct instances
         """
-        return list(self.parse())
+        products = list(self.parse())
+        logger.info(f"Total products parsed: {len(products)}")
+        
+        # Log summary
+        total_variants = sum(len(p.variants) for p in products)
+        products_with_sku = sum(1 for p in products if any(v.sku for v in p.variants))
+        logger.info(f"Products with SKUs: {products_with_sku}/{len(products)}, Total variants: {total_variants}")
+        
+        # Log first product details for debugging
+        if products:
+            first = products[0]
+            logger.debug(f"First product: handle={first.handle}, title={first.title}, variants={len(first.variants)}")
+            if first.variants:
+                logger.debug(f"First variant: sku={first.variants[0].sku}, price={first.variants[0].price}")
+        
+        return products
     
     def get_sku_list(self) -> List[str]:
         """

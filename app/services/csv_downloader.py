@@ -75,6 +75,22 @@ class CSVDownloader:
                         bytes_written += len(chunk)
             
             logger.info(f"Downloaded {bytes_written} bytes to {file_path}")
+            
+            # Validate file was written
+            if bytes_written == 0:
+                raise APIError("Downloaded CSV is empty (0 bytes)")
+            
+            if not file_path.exists():
+                raise APIError(f"Downloaded file not found at {file_path}")
+            
+            # Log first few lines for debugging
+            try:
+                with open(file_path, 'r', encoding='utf-8') as check_file:
+                    first_lines = [next(check_file) for _ in range(min(3, bytes_written))]
+                    logger.debug(f"CSV first line (header): {first_lines[0][:200] if first_lines else 'empty'}")
+            except Exception as e:
+                logger.warning(f"Could not read CSV for validation: {e}")
+            
             return file_path
             
         except requests.RequestException as e:

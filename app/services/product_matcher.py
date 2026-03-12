@@ -169,12 +169,35 @@ class ProductMatcher:
         """
         logger.info(f"Matching {len(csv_products)} CSV products")
         
+        # Validate CSV products before matching
+        if not csv_products:
+            logger.warning("No CSV products to match!")
+            return []
+        
         # Extract all SKUs from CSV
         all_skus = []
+        products_without_variants = 0
+        products_without_skus = 0
+        
         for product in csv_products:
+            if not product.variants:
+                products_without_variants += 1
+                continue
+            
+            has_sku = False
             for variant in product.variants:
                 if variant.sku:
                     all_skus.append(variant.sku)
+                    has_sku = True
+            
+            if not has_sku:
+                products_without_skus += 1
+        
+        logger.info(f"Extracted {len(all_skus)} SKUs from CSV")
+        if products_without_variants > 0:
+            logger.warning(f"{products_without_variants} products have no variants")
+        if products_without_skus > 0:
+            logger.warning(f"{products_without_skus} products have no SKUs in variants")
         
         # Build SKU map from Shopify (unless force_create)
         if not force_create:
