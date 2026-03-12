@@ -148,6 +148,17 @@ def login():
     For Store extensions (shop/project type), Mergado sends entity_id or eshop
     when opening the app. Pass it through so Mergado can authorize in the correct context.
     """
+    # #region agent log
+    import json
+    import os
+    import time
+    _log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.cursor', 'debug-ac150f.log')
+    try:
+        with open(_log_path, 'a') as f:
+            f.write(json.dumps({"sessionId": "ac150f", "timestamp": int(time.time() * 1000), "location": "oauth:login:entry", "message": "login hit", "data": {"args": dict(request.args)}, "hypothesisId": "H2"}) + '\n')
+    except Exception:
+        pass
+    # #endregion
     state = request.args.get('state')
     # Mergado Store opens the app with ?eshop=<id>; OAuth API expects entity_id
     entity_id = request.args.get('entity_id') or request.args.get('eshop')

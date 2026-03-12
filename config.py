@@ -2,12 +2,14 @@
 Base configuration loader for the Mergado Flask application.
 Handles Flask app creation, logging setup, and blueprint registration.
 """
+import json
 import logging
-import sys
-from typing import Dict, Any
 import os
+import sys
+import time
+from typing import Dict, Any
 
-from flask import Flask
+from flask import Flask, request
 from app import db, migrate
 
 from app.auth.oauth import auth_bp
@@ -47,6 +49,19 @@ def create_app(config_object: str = None) -> Flask:
     
     # Initialize rate limiting
     init_rate_limiter(app)
+
+    # #region agent log
+    _debug_log_path = os.path.join(os.path.dirname(__file__), '.cursor', 'debug-ac150f.log')
+    @app.before_request
+    def _debug_log_request():
+        try:
+            payload = {"sessionId": "ac150f", "timestamp": int(time.time() * 1000), "location": "config:before_request", "message": "request", "data": {"path": request.path, "url": request.url, "method": request.method}, "hypothesisId": "H1_H2"}
+            with open(_debug_log_path, 'a') as f:
+                f.write(json.dumps(payload) + '\n')
+        except Exception:
+            pass
+        print(f"[DEBUG ac150f] request path={request.path!r} method={request.method}", flush=True)
+    # #endregion
 
     return app
 
