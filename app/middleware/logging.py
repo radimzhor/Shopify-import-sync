@@ -20,7 +20,6 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
-        # Create base log entry
         log_entry = {
             'timestamp': self.formatTime(record, self.default_time_format),
             'level': record.levelname,
@@ -28,27 +27,26 @@ class JSONFormatter(logging.Formatter):
             'message': record.getMessage(),
         }
 
-        # Add request context if available
         try:
             if hasattr(g, 'request_id'):
                 log_entry['request_id'] = g.request_id
         except RuntimeError:
-            # No application context available
             pass
 
-        if request:
-            log_entry.update({
-                'method': request.method,
-                'url': request.url,
-                'remote_addr': request.remote_addr,
-                'user_agent': request.headers.get('User-Agent'),
-            })
+        try:
+            if request and request.method:
+                log_entry.update({
+                    'method': request.method,
+                    'url': request.url,
+                    'remote_addr': request.remote_addr,
+                    'user_agent': request.headers.get('User-Agent'),
+                })
+        except RuntimeError:
+            pass
 
-        # Add exception info if present
         if record.exc_info:
             log_entry['exception'] = self.formatException(record.exc_info)
 
-        # Add extra fields from record
         if hasattr(record, 'extra_fields'):
             log_entry.update(record.extra_fields)
 
@@ -73,24 +71,15 @@ def setup_logging(app: Flask) -> None:
     """
     Setup application logging with appropriate formatters and handlers.
 
+    Configures both Flask's app.logger AND the root logger so that
+    logging.getLogger(__name__) calls in application modules also
+    produce output.
+
     Args:
         app: Flask application instance
     """
-    # Clear existing handlers
-    app.logger.handlers.clear()
-
-    # Set log level
     log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
-    app.logger.setLevel(log_level)
 
-    # Create console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-
-    # Add request ID filter
-    console_handler.addFilter(RequestIDFilter())
-
-    # Choose formatter based on settings
     if settings.log_format.lower() == 'json':
         formatter = JSONFormatter()
     else:
@@ -98,13 +87,21 @@ def setup_logging(app: Flask) -> None:
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
 
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_handler.addFilter(RequestIDFilter())
     console_handler.setFormatter(formatter)
-    app.logger.addHandler(console_handler)
 
-    # Prevent duplicate logs
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    if not root_logger.handlers:
+        root_logger.addHandler(console_handler)
+
+    app.logger.handlers.clear()
+    app.logger.addHandler(console_handler)
+    app.logger.setLevel(log_level)
     app.logger.propagate = False
 
-    # Log application startup
     app.logger.info("Application logging initialized", extra={
         'extra_fields': {
             'log_format': settings.log_format,
