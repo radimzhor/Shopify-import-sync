@@ -101,3 +101,14 @@ def _init_database(app: Flask) -> None:
     
     # Import models so they're registered with SQLAlchemy
     from app import models  # noqa: F401
+
+    # Ensure tables exist (fallback if migrations haven't run)
+    with app.app_context():
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            if 'shops' not in inspector.get_table_names():
+                app.logger.info("Tables missing, running db.create_all()")
+                db.create_all()
+        except Exception as e:
+            app.logger.warning(f"Table check/create failed: {e}")
