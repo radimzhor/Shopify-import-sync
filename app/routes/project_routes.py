@@ -95,10 +95,32 @@ def get_shop_projects(shop_id: str):
             # Fetch full project details to get output_url
             try:
                 project_details = mergado_client.get_project(project_id)
-                logger.info(f"Fetched project {project_id} details: {project_details.get('url')}")
+                logger.info(f"Fetched project {project_id} details - slug: {project_details.get('slug')}, "
+                           f"output_format: {project_details.get('output_format')}")
+                logger.debug(f"Full project details keys: {list(project_details.keys())}")
             except Exception as e:
                 logger.warning(f"Failed to fetch details for project {project_id}: {e}")
                 project_details = api_project
+            
+            # Construct output URL from slug
+            # Mergado feed URLs are typically: https://feed.mergado.com/{shop_id}/{slug}.xml (or .csv)
+            output_url = project_details.get('url')  # Check if URL is directly provided
+            
+            if not output_url:
+                # Construct URL from slug
+                slug = project_details.get('slug')
+                if slug:
+                    # Determine file extension based on output format
+                    output_format = project_details.get('output_format', '').lower()
+                    if 'csv' in output_format or 'shopify' in output_format:
+                        extension = 'csv'
+                    else:
+                        extension = 'xml'
+                    
+                    output_url = f"https://feed.mergado.com/{shop_id}/{slug}.{extension}"
+                    logger.info(f"Constructed output URL from slug: {output_url}")
+                else:
+                    logger.warning(f"Project {project_id} has no slug, cannot construct output URL")
             
             # Get or create project
             project = Project.query.filter_by(mergado_project_id=project_id).first()
@@ -107,15 +129,15 @@ def get_shop_projects(shop_id: str):
                     shop_id=shop.id,
                     mergado_project_id=project_id,
                     name=project_details.get('name', api_project.get('name', project_id)),
-                    output_url=project_details.get('url'),  # 'url' field contains output URL
-                    output_format='shopify_csv'  # Assume Shopify CSV format
+                    output_url=output_url,
+                    output_format=project_details.get('output_format', 'shopify_csv')
                 )
                 db.session.add(project)
             else:
                 # Update project info
                 project.name = project_details.get('name', api_project.get('name', project_id))
-                project.output_url = project_details.get('url')
-                project.output_format = 'shopify_csv'
+                project.output_url = output_url
+                project.output_format = project_details.get('output_format', 'shopify_csv')
         
         db.session.commit()
         
