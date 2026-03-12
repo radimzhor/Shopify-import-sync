@@ -127,7 +127,7 @@ def get_shop_projects(shop_id: str):
                     else:
                         extension = 'xml'
                     
-                    output_url = f"https://feed.mergado.com/{shop_id}/{slug}.{extension}"
+                    output_url = f"https://feeds.mergado.com/{shop_id}/{slug}.{extension}"
                     logger.info(f"Constructed output URL from slug: {output_url}")
                     
                     # #region agent log
