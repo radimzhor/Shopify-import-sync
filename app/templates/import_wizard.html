@@ -228,49 +228,61 @@
             document.getElementById('step-preview').style.display = 'none';
             document.getElementById('step-import').style.display = 'block';
             
-            streamImportProgress(currentJobId);
-            
+            pollImportStatus(currentJobId);
+
         } catch (error) {
             console.error('Failed to start import:', error);
             alert('Failed to start import: ' + error.message);
         }
     }
 
-    async function streamImportProgress(jobId) {
+    async function pollImportStatus(jobId) {
         const token = window.authManager.getAccessToken();
-        const eventSource = new EventSource(`/api/import/progress/${jobId}?token=${token}`);
-        
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            
-            if (data.status === 'completed') {
-                updateProgress(data);
-                eventSource.close();
-                showWritebackStep();
-            } else if (data.status === 'failed') {
-                eventSource.close();
-                showError(data.error);
-            } else {
-                updateProgress(data);
+
+        while (true) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const resp = await fetch(`/api/import/status/${jobId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) { console.warn('Poll returned', resp.status); continue; }
+
+                const data = await resp.json();
+                const total = data.total_count || 0;
+                const processed = (data.success_count || 0) + (data.failed_count || 0);
+                const pct = total > 0 ? Math.round(processed / total * 100) : 0;
+
+                updateProgress({
+                    total: total,
+                    success: data.success_count,
+                    failed: data.failed_count,
+                    skipped: data.skipped_count,
+                    percent: pct
+                });
+
+                if (data.status === 'completed') {
+                    updateProgress({ percent: 100 });
+                    showWritebackStep();
+                    return;
+                }
+                if (data.status === 'failed') {
+                    showError(data.error_message || 'Import failed');
+                    return;
+                }
+            } catch (e) {
+                console.warn('Poll error:', e);
             }
-        };
-        
-        eventSource.onerror = function(error) {
-            console.error('SSE error:', error);
-            eventSource.close();
-            // Import may still be running server-side; poll for final status
-            pollImportStatus(jobId);
-        };
+        }
     }
 
     function updateProgress(data) {
-        if (data.percent) {
+        if (data.percent !== undefined) {
             const progressBar = document.getElementById('import-progress-bar');
             progressBar.style.width = data.percent + '%';
             progressBar.textContent = data.percent + '%';
         }
-        
-        if (data.total) document.getElementById('progress-total').textContent = data.total;
+
+        if (data.total !== undefined) document.getElementById('progress-total').textContent = data.total;
         if (data.success !== undefined) document.getElementById('progress-success').textContent = data.success;
         if (data.failed !== undefined) document.getElementById('progress-failed').textContent = data.failed;
         if (data.skipped !== undefined) document.getElementById('progress-skipped').textContent = data.skipped;
@@ -329,44 +341,6 @@
             document.getElementById('writeback-loading').style.display = 'none';
             alert('Writeback failed: ' + error.message);
         }
-    }
-
-    async function pollImportStatus(jobId) {
-        const token = window.authManager.getAccessToken();
-        const statusMsg = document.getElementById('import-status-message');
-        statusMsg.className = 'alert alert-warning';
-        statusMsg.innerHTML = '<i class="fas fa-sync fa-spin"></i> Connection lost. Checking import status...';
-
-        for (let i = 0; i < 60; i++) {
-            await new Promise(r => setTimeout(r, 5000));
-            try {
-                const resp = await fetch(`/api/import/status/${jobId}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!resp.ok) continue;
-                const data = await resp.json();
-                updateProgress({
-                    total: data.total_count,
-                    success: data.success_count,
-                    failed: data.failed_count,
-                    skipped: data.skipped_count,
-                    percent: data.total_count ? Math.round((data.success_count + data.failed_count) / data.total_count * 100) : 0
-                });
-                if (data.status === 'completed') {
-                    updateProgress({ percent: 100, total: data.total_count, success: data.success_count, failed: data.failed_count, skipped: data.skipped_count });
-                    showWritebackStep();
-                    return;
-                }
-                if (data.status === 'failed') {
-                    showError(data.error_message || 'Import failed');
-                    return;
-                }
-                statusMsg.innerHTML = `<i class="fas fa-sync fa-spin"></i> Reconnecting... Import still running (${data.success_count} success, ${data.failed_count} failed)`;
-            } catch (e) {
-                console.error('Poll error:', e);
-            }
-        }
-        showError('Import timed out. Check the import history for results.');
     }
 
     function showError(message) {

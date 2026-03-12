@@ -1,11 +1,10 @@
 """
-Import routes - handles product import operations and SSE progress.
+Import routes - handles product import operations with background processing.
 """
 import logging
-import json
-from typing import Generator
+import threading
 
-from flask import Blueprint, request, jsonify, Response, stream_with_context, make_response
+from flask import Blueprint, request, jsonify, current_app
 from werkzeug.exceptions import BadRequest
 
 from app import db
@@ -26,6 +25,59 @@ from app.services.product_importer import ProductImporter
 
 logger = logging.getLogger(__name__)
 import_bp = Blueprint('import', __name__, url_prefix='/api/import')
+
+
+def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str):
+    """
+    Run the full import pipeline in a background thread.
+
+    Uses the Flask app context so SQLAlchemy sessions work correctly.
+    Updates the ImportJob row after every product so the polling endpoint
+    always has fresh numbers.
+    """
+    with app.app_context():
+        import_job = ImportJob.query.get(job_id)
+        if not import_job:
+            logger.error(f"[BG] Import job {job_id} not found")
+            return
+
+        project = import_job.project
+
+        try:
+            mergado_client = MergadoClient(access_token)
+            shopify_service = ShopifyService(mergado_client, shop_id)
+
+            logger.info(f"[BG] Job {job_id}: downloading CSV from {project.output_url}")
+            downloader = CSVDownloader()
+            csv_path = downloader.download(
+                project.output_url,
+                cache_key=project.mergado_project_id,
+            )
+            parser = ShopifyCSVParser(csv_path)
+            csv_products = parser.parse_all()
+
+            logger.info(f"[BG] Job {job_id}: parsed {len(csv_products)} products, matching...")
+            matcher = ProductMatcher(shopify_service)
+            matches = matcher.match_products(csv_products)
+
+            logger.info(f"[BG] Job {job_id}: matched {len(matches)} products, importing...")
+            importer = ProductImporter(shopify_service, import_job, progress_callback=None)
+
+            for _progress in importer.import_products_iter(matches):
+                pass  # DB is updated inside the iterator; nothing else needed
+
+            logger.info(
+                f"[BG] Job {job_id} done: "
+                f"{import_job.success_count} success, "
+                f"{import_job.failed_count} failed, "
+                f"{import_job.skipped_count} skipped"
+            )
+
+        except Exception as e:
+            logger.error(f"[BG] Job {job_id} failed: {e}", exc_info=True)
+            import_job.status = ImportStatus.FAILED.value
+            import_job.error_message = str(e)
+            db.session.commit()
 
 
 @import_bp.route('/preview', methods=['POST'])
@@ -163,112 +215,34 @@ def start_import():
         raise BadRequest(f"Project with ID {project_id} not found")
     if not project.output_url:
         raise BadRequest("Project is missing output URL. Please reload the project list.")
-    
-    # Create import job
+
+    auth_header = request.headers.get('Authorization', '')
+    access_token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
+    if not access_token:
+        raise BadRequest("Access token required")
+
     import_job = ImportJob(
         project_id=project.id,
-        status=ImportStatus.PENDING.value
+        status=ImportStatus.PENDING.value,
     )
     db.session.add(import_job)
     db.session.commit()
-    
+
     logger.info(f"Created import job {import_job.id} for project {project_id}")
-    
+
+    # Launch import in a background thread so the HTTP response returns immediately
+    app = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_run_import_in_background,
+        args=(app, import_job.id, access_token, shop_id),
+        daemon=True,
+    )
+    thread.start()
+
     return jsonify({
         'job_id': import_job.id,
-        'status': import_job.status
+        'status': import_job.status,
     })
-
-
-@import_bp.route('/progress/<int:job_id>')
-@require_auth
-def stream_progress(job_id: int):
-    """
-    Stream import progress via SSE.
-    
-    Args:
-        job_id: Import job ID
-        
-    Returns:
-        SSE stream with progress updates
-    """
-    # Verify job exists
-    import_job = ImportJob.query.get_or_404(job_id)
-    
-    def generate() -> Generator[str, None, None]:
-        """Generate SSE events."""
-        logger.info(f"[SSE] Starting SSE stream for job {job_id}")
-
-        # Send initial status
-        yield f"data: {json.dumps({'status': import_job.status})}\n\n"
-
-        if import_job.status in [ImportStatus.COMPLETED.value, ImportStatus.FAILED.value]:
-            yield f"data: {json.dumps({'status': 'completed'})}\n\n"
-            return
-
-        try:
-            project = import_job.project
-            shop_id = project.shop.mergado_shop_id
-
-            from flask import request as current_request
-            auth_header = current_request.headers.get('Authorization', '')
-            access_token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
-            if not access_token:
-                access_token = current_request.args.get('token', '')
-
-            if not access_token:
-                yield f"data: {json.dumps({'status': 'failed', 'error': 'Access token required'})}\n\n"
-                return
-
-            mergado_client = MergadoClient(access_token)
-            shopify_service = ShopifyService(mergado_client, shop_id)
-
-            # Send keepalive while downloading CSV
-            logger.info(f"[SSE] Downloading CSV for project {project.mergado_project_id}")
-            yield f": keepalive\n\n"
-
-            downloader = CSVDownloader()
-            csv_path = downloader.download(
-                project.output_url,
-                cache_key=project.mergado_project_id
-            )
-            parser = ShopifyCSVParser(csv_path)
-            csv_products = parser.parse_all()
-
-            logger.info(f"[SSE] Parsed {len(csv_products)} products, matching...")
-            yield f": keepalive\n\n"
-
-            matcher = ProductMatcher(shopify_service)
-            matches = matcher.match_products(csv_products)
-
-            logger.info(f"[SSE] Matched {len(matches)} products, starting import...")
-
-            importer = ProductImporter(
-                shopify_service,
-                import_job,
-                progress_callback=None
-            )
-
-            for progress in importer.import_products_iter(matches):
-                yield f"data: {json.dumps(progress)}\n\n"
-
-            logger.info(
-                f"[SSE] Import done: success={import_job.success_count}, "
-                f"failed={import_job.failed_count}, skipped={import_job.skipped_count}"
-            )
-
-        except Exception as e:
-            logger.error(f"[SSE] Import failed: {e}", exc_info=True)
-            yield f"data: {json.dumps({'status': 'failed', 'error': str(e)})}\n\n"
-    
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',  # Disable nginx buffering
-        }
-    )
 
 
 @import_bp.route('/status/<int:job_id>')
