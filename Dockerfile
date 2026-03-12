@@ -55,12 +55,8 @@ RUN chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+# Expose port (Render sets $PORT at runtime, default 10000)
+EXPOSE 10000
 
-# Expose port
-EXPOSE 5000
-
-# Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "300", "--log-level", "info", "main:app"]
+# Run the application — use $PORT so Render's proxy can route traffic
+CMD sh -c "flask db upgrade || true && exec gunicorn --bind 0.0.0.0:\${PORT:-5000} --workers 2 --threads 4 --timeout 300 --log-level info main:app"
