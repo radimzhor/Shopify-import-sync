@@ -76,21 +76,29 @@ def get_shop_projects(shop_id: str):
         # Fetch projects from Mergado API
         projects = mergado_client.get_projects(shop_id)
         
-        # Sync with database
+        # Get or create shop first
+        shop = Shop.query.filter_by(mergado_shop_id=shop_id).first()
+        if not shop:
+            # Create shop
+            shop = Shop(
+                mergado_shop_id=shop_id,
+                name=f"Shop {shop_id}",  # Will be updated when we fetch shop details
+                shopify_connected=True  # Assume true for now
+            )
+            db.session.add(shop)
+            db.session.flush()
+        
+        # Sync with database - fetch full details for each project
         for api_project in projects:
             project_id = str(api_project['id'])
             
-            # Get or create shop
-            shop = Shop.query.filter_by(mergado_shop_id=shop_id).first()
-            if not shop:
-                # Create shop (in real implementation, fetch shop details)
-                shop = Shop(
-                    mergado_shop_id=shop_id,
-                    name=api_project.get('shop_name', shop_id),
-                    shopify_connected=True  # Assume true for now
-                )
-                db.session.add(shop)
-                db.session.flush()
+            # Fetch full project details to get output_url
+            try:
+                project_details = mergado_client.get_project(project_id)
+                logger.info(f"Fetched project {project_id} details: {project_details.get('url')}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch details for project {project_id}: {e}")
+                project_details = api_project
             
             # Get or create project
             project = Project.query.filter_by(mergado_project_id=project_id).first()
@@ -98,16 +106,16 @@ def get_shop_projects(shop_id: str):
                 project = Project(
                     shop_id=shop.id,
                     mergado_project_id=project_id,
-                    name=api_project.get('name', project_id),
-                    output_url=api_project.get('output_url'),
-                    output_format=api_project.get('output_format')
+                    name=project_details.get('name', api_project.get('name', project_id)),
+                    output_url=project_details.get('url'),  # 'url' field contains output URL
+                    output_format='shopify_csv'  # Assume Shopify CSV format
                 )
                 db.session.add(project)
             else:
                 # Update project info
-                project.name = api_project.get('name', project_id)
-                project.output_url = api_project.get('output_url')
-                project.output_format = api_project.get('output_format')
+                project.name = project_details.get('name', api_project.get('name', project_id))
+                project.output_url = project_details.get('url')
+                project.output_format = 'shopify_csv'
         
         db.session.commit()
         

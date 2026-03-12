@@ -39,7 +39,7 @@ def preview_import():
     
     Expects:
         {
-            "project_id": "123",
+            "project_id": "123",  # Database project ID or Mergado project ID
             "shop_id": "456"
         }
     
@@ -53,10 +53,20 @@ def preview_import():
     if not project_id or not shop_id:
         raise BadRequest("project_id and shop_id required")
     
-    # Get project from database
-    project = Project.query.filter_by(mergado_project_id=project_id).first()
-    if not project or not project.output_url:
-        raise BadRequest("Project not configured or missing output URL")
+    # Get project from database (try both database ID and Mergado project ID)
+    try:
+        project = Project.query.get(int(project_id))
+    except (ValueError, TypeError):
+        project = None
+    
+    if not project:
+        project = Project.query.filter_by(mergado_project_id=str(project_id)).first()
+    
+    if not project:
+        raise BadRequest(f"Project with ID {project_id} not found")
+    
+    if not project.output_url:
+        raise BadRequest("Project is missing output URL. Please reload the project list.")
     
     # Initialize services
     # Extract token from Authorization header
@@ -70,24 +80,39 @@ def preview_import():
     shopify_service = ShopifyService(mergado_client, shop_id)
     
     try:
+        logger.info(f"Generating preview for project {project.id} (Mergado ID: {project.mergado_project_id})")
+        
         # Download CSV
         downloader = CSVDownloader()
-        csv_path = downloader.download(project.output_url, cache_key=project_id)
+        csv_path = downloader.download(project.output_url, cache_key=str(project.id))
+        logger.info(f"Downloaded CSV from {project.output_url} to {csv_path}")
         
         # Parse CSV
         parser = ShopifyCSVParser(csv_path)
         csv_products = parser.parse_all()
+        logger.info(f"Parsed {len(csv_products)} products from CSV")
         
         # Match products
         matcher = ProductMatcher(shopify_service)
         matches = matcher.match_products(csv_products)
         preview = matcher.generate_preview(matches)
+        logger.info(f"Generated preview: {preview.products_to_create} create, {preview.products_to_update} update, {preview.products_to_skip} skip")
         
         return jsonify(preview.to_dict())
         
     except Exception as e:
-        logger.error(f"Preview failed: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Preview failed for project {project.id}: {e}", exc_info=True)
+        error_message = str(e)
+        
+        # Provide more helpful error messages
+        if 'download' in error_message.lower() or 'url' in error_message.lower():
+            error_message = f"Failed to download product feed. Please check if the project output is configured in Mergado. Error: {error_message}"
+        elif 'parse' in error_message.lower() or 'csv' in error_message.lower():
+            error_message = f"Failed to parse CSV feed. Please check if the project is configured for Shopify CSV output. Error: {error_message}"
+        elif 'shopify' in error_message.lower() or 'connection' in error_message.lower():
+            error_message = f"Failed to connect to Shopify. Please check if Shopify is connected in your Mergado Keychain. Error: {error_message}"
+        
+        return jsonify({'error': error_message}), 500
 
 
 @import_bp.route('/start', methods=['POST'])
