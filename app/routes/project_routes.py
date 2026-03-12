@@ -2,8 +2,6 @@
 Project routes - handles project selection and configuration.
 """
 import logging
-import json
-from datetime import datetime
 
 from flask import Blueprint, request, jsonify, render_template
 from werkzeug.exceptions import BadRequest
@@ -104,48 +102,36 @@ def get_shop_projects(shop_id: str):
                 logger.warning(f"Failed to fetch details for project {project_id}: {e}")
                 project_details = api_project
             
-            # Construct output URL from slug
-            # Mergado feed URLs are typically: https://feed.mergado.com/{shop_id}/{slug}.xml (or .csv)
-            output_url = project_details.get('url')  # Check if URL is directly provided
-            
-            # #region agent log
-            try:
-                with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                    f.write(json.dumps({'sessionId': '654f3d', 'location': 'project_routes.py:114', 'message': 'Project URL construction start', 'data': {'project_id': project_id, 'shop_id': shop_id, 'has_url_field': output_url is not None, 'url_field_value': output_url, 'slug': project_details.get('slug'), 'output_format': project_details.get('output_format')}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'A,B'}) + '\n')
-            except Exception:
-                pass
+            # #region agent log - Hypothesis A: check what 'url' field contains (it may be INPUT url, not output)
+            input_url_field = project_details.get('url')
+            slug = project_details.get('slug')
+            output_format = project_details.get('output_format', '')
+            logger.info(
+                f"[DBG-654f3d] HYP-A project {project_id}: "
+                f"url_field={input_url_field!r}, slug={slug!r}, "
+                f"output_format={output_format!r}, "
+                f"all_keys={list(project_details.keys())}"
+            )
             # #endregion
-            
-            if not output_url:
-                # Construct URL from slug
-                slug = project_details.get('slug')
-                if slug:
-                    # Determine file extension based on output format
-                    output_format = project_details.get('output_format', '').lower()
-                    if 'csv' in output_format or 'shopify' in output_format:
-                        extension = 'csv'
-                    else:
-                        extension = 'xml'
-                    
-                    output_url = f"https://feeds.mergado.com/{shop_id}/{slug}.{extension}"
-                    logger.info(f"Constructed output URL from slug: {output_url}")
-                    
-                    # #region agent log
-                    try:
-                        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                            f.write(json.dumps({'sessionId': '654f3d', 'location': 'project_routes.py:129', 'message': 'URL constructed from slug', 'data': {'constructed_url': output_url, 'slug': slug, 'extension': extension, 'output_format': output_format}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'A'}) + '\n')
-                    except Exception:
-                        pass
-                    # #endregion
+
+            # Construct output URL from slug (NOT from 'url' field which is the INPUT feed)
+            output_url = None
+            if slug:
+                fmt = output_format.lower()
+                if 'csv' in fmt or 'shopify' in fmt:
+                    extension = 'csv'
                 else:
-                    logger.warning(f"Project {project_id} has no slug, cannot construct output URL")
-                    # #region agent log
-                    try:
-                        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                            f.write(json.dumps({'sessionId': '654f3d', 'location': 'project_routes.py:134', 'message': 'No slug found', 'data': {'project_id': project_id, 'project_details_keys': list(project_details.keys())}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'B'}) + '\n')
-                    except Exception:
-                        pass
-                    # #endregion
+                    extension = 'xml'
+                output_url = f"https://feeds.mergado.com/{slug}.{extension}"
+                # #region agent log - Hypothesis C,D,E: log constructed URL for comparison
+                logger.info(
+                    f"[DBG-654f3d] HYP-CDE project {project_id}: "
+                    f"constructed_url={output_url!r}, slug={slug!r}, "
+                    f"extension={extension!r}, output_format={fmt!r}"
+                )
+                # #endregion
+            else:
+                logger.warning(f"[DBG-654f3d] Project {project_id} has no slug, cannot construct output URL")
             
             # Get or create project
             project = Project.query.filter_by(mergado_project_id=project_id).first()
@@ -159,17 +145,16 @@ def get_shop_projects(shop_id: str):
                 )
                 db.session.add(project)
             else:
-                # Update project info
                 project.name = project_details.get('name', api_project.get('name', project_id))
                 project.output_url = output_url
                 project.output_format = project_details.get('output_format', 'shopify_csv')
-            
+
             # #region agent log
-            try:
-                with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                    f.write(json.dumps({'sessionId': '654f3d', 'location': 'project_routes.py:155', 'message': 'Project saved to DB', 'data': {'project_id': project_id, 'db_id': project.id if hasattr(project, 'id') else None, 'output_url': project.output_url, 'output_url_is_none': project.output_url is None}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'B'}) + '\n')
-            except Exception:
-                pass  # Don't let logging break the endpoint
+            logger.info(
+                f"[DBG-654f3d] Project saved: mergado_id={project_id}, "
+                f"db_id={getattr(project, 'id', 'new')}, "
+                f"output_url={project.output_url!r}"
+            )
             # #endregion
         
         db.session.commit()

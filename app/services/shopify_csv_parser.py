@@ -6,11 +6,9 @@ and custom metafields according to Shopify's import specification.
 """
 import csv
 import logging
-import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
 
 
 logger = logging.getLogger(__name__)
@@ -222,13 +220,14 @@ class ShopifyCSVParser:
             for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
                 handle = row.get('Handle', '').strip()
                 
-                # #region agent log
-                if row_num == 2:  # Log first data row only
-                    try:
-                        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                            f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:223', 'message': 'First CSV data row', 'data': {'handle': handle, 'title': row.get('Title', ''), 'variant_sku': row.get('Variant SKU', ''), 'has_handle': bool(handle), 'row_keys': list(row.keys())[:10]}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
-                    except Exception:
-                        pass
+                # #region agent log - Hypothesis B,E: check first row content & headers
+                if row_num == 2:
+                    logger.info(
+                        f"[DBG-654f3d] HYP-BE first_row: handle={handle!r}, "
+                        f"title={row.get('Title', '')!r}, "
+                        f"sku={row.get('Variant SKU', '')!r}, "
+                        f"keys={list(row.keys())[:10]}"
+                    )
                 # #endregion
                 
                 if not handle:
@@ -265,11 +264,7 @@ class ShopifyCSVParser:
         logger.info(f"Parsed {products_parsed} products from CSV")
         
         # #region agent log
-        try:
-            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:256', 'message': 'CSV parsing complete', 'data': {'products_parsed': products_parsed}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
-        except Exception:
-            pass
+        logger.info(f"[DBG-654f3d] parse complete: products_parsed={products_parsed}")
         # #endregion
     
     def parse_all(self) -> List[ShopifyProduct]:

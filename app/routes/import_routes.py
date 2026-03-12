@@ -3,11 +3,7 @@ Import routes - handles product import operations and SSE progress.
 """
 import logging
 import json
-import csv
-import io
 from typing import Generator
-from pathlib import Path
-from datetime import datetime
 
 from flask import Blueprint, request, jsonify, Response, stream_with_context, make_response
 from werkzeug.exceptions import BadRequest
@@ -66,14 +62,15 @@ def preview_import():
     if not project:
         raise BadRequest(f"Project with ID {project_id} not found")
     
-    # #region agent log
-    try:
-        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-            f.write(json.dumps({'sessionId': '654f3d', 'location': 'import_routes.py:66', 'message': 'Preview starting - project loaded', 'data': {'project_db_id': project.id, 'project_mergado_id': project.mergado_project_id, 'output_url': project.output_url, 'output_url_is_none': project.output_url is None, 'output_format': project.output_format}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'B'}) + '\n')
-    except Exception:
-        pass
+    # #region agent log - Hypothesis A,B: trace what URL the preview will download
+    logger.info(
+        f"[DBG-654f3d] HYP-AB preview: db_id={project.id}, "
+        f"mergado_id={project.mergado_project_id}, "
+        f"output_url={project.output_url!r}, "
+        f"output_format={project.output_format!r}"
+    )
     # #endregion
-    
+
     if not project.output_url:
         raise BadRequest("Project is missing output URL. Please reload the project list.")
     
