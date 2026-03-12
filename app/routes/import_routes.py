@@ -242,25 +242,20 @@ def stream_progress(job_id: int):
             matches = matcher.match_products(csv_products)
 
             logger.info(f"[SSE] Matched {len(matches)} products, starting import...")
-            yield f"data: {json.dumps({'status': 'importing', 'total': len([m for m in matches if m.action.value != 'skip'])})}\n\n"
 
             importer = ProductImporter(
                 shopify_service,
                 import_job,
                 progress_callback=None
             )
-            importer.import_products(matches)
 
-            logger.info(f"[SSE] Import complete: success={import_job.success_count}, failed={import_job.failed_count}")
-            final_data = {
-                'status': 'completed',
-                'total': import_job.total_count,
-                'success': import_job.success_count,
-                'failed': import_job.failed_count,
-                'skipped': import_job.skipped_count,
-                'percent': 100
-            }
-            yield f"data: {json.dumps(final_data)}\n\n"
+            for progress in importer.import_products_iter(matches):
+                yield f"data: {json.dumps(progress)}\n\n"
+
+            logger.info(
+                f"[SSE] Import done: success={import_job.success_count}, "
+                f"failed={import_job.failed_count}, skipped={import_job.skipped_count}"
+            )
 
         except Exception as e:
             logger.error(f"[SSE] Import failed: {e}", exc_info=True)

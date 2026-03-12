@@ -176,109 +176,114 @@ class ProductImporter:
     
     def import_products(self, matches: List[ProductMatch]) -> None:
         """
-        Import all matched products to Shopify.
-        
+        Import all matched products to Shopify (batch, no progress yielding).
+
         Args:
             matches: List of product matches from ProductMatcher
         """
-        # Update job status
+        for progress in self.import_products_iter(matches):
+            self._send_progress(progress)
+
+    def import_products_iter(self, matches: List[ProductMatch]):
+        """
+        Import products one at a time, yielding progress dicts after each.
+
+        Designed for SSE streaming: the caller can yield SSE events between products
+        to keep the connection alive and show real-time progress.
+
+        Yields:
+            dict with status, counts, and percent
+        """
         self.import_job.status = ImportStatus.RUNNING.value
         self.import_job.started_at = datetime.utcnow()
         self.import_job.total_count = len([m for m in matches if m.action != MatchAction.SKIP])
         db.session.commit()
-        
-        self._send_progress({
+
+        yield {
             'status': 'started',
             'total': self.import_job.total_count,
-            'processed': 0
-        })
-        
+            'processed': 0,
+        }
+
         processed = 0
-        
+
         try:
             for match in matches:
                 if match.action == MatchAction.SKIP:
                     self._log_product_result(
                         product_identifier=match.primary_sku or match.csv_product.handle,
                         status=ImportLogStatus.SKIPPED,
-                        error_message=match.reason
+                        error_message=match.reason,
                     )
                     self.import_job.skipped_count += 1
                     continue
-                
-                # Process product
+
                 try:
                     if match.action == MatchAction.CREATE:
                         result = self._create_product(match)
                     else:
                         result = self._update_product(match)
-                    
-                    # Log success
+
                     self._log_product_result(
                         product_identifier=match.primary_sku or match.csv_product.handle,
                         status=ImportLogStatus.SUCCESS,
                         shopify_product_id=result.get('product', {}).get('id'),
-                        details={'variants_count': len(result.get('product', {}).get('variants', []))}
+                        details={'variants_count': len(result.get('product', {}).get('variants', []))},
                     )
                     self.import_job.success_count += 1
-                    
+
                 except APIError as e:
                     logger.error(f"Failed to import {match.primary_sku}: {e}")
                     self._log_product_result(
                         product_identifier=match.primary_sku or match.csv_product.handle,
                         status=ImportLogStatus.FAILED,
-                        error_message=str(e)
+                        error_message=str(e),
                     )
                     self.import_job.failed_count += 1
-                
-                # Send progress update
+
                 processed += 1
                 db.session.commit()
-                
-                self._send_progress({
+
+                total = max(self.import_job.total_count, 1)
+                yield {
                     'status': 'processing',
                     'total': self.import_job.total_count,
                     'processed': processed,
                     'success': self.import_job.success_count,
                     'failed': self.import_job.failed_count,
                     'skipped': self.import_job.skipped_count,
-                    'percent': int((processed / self.import_job.total_count) * 100)
-                })
-            
-            # Job completed
+                    'percent': int((processed / total) * 100),
+                }
+
             self.import_job.status = ImportStatus.COMPLETED.value
             self.import_job.finished_at = datetime.utcnow()
             db.session.commit()
-            
-            self._send_progress({
-                'status': 'completed',
-                'total': self.import_job.total_count,
-                'processed': processed,
-                'success': self.import_job.success_count,
-                'failed': self.import_job.failed_count,
-                'skipped': self.import_job.skipped_count,
-                'percent': 100
-            })
-            
+
             logger.info(
                 f"Import job {self.import_job.id} completed: "
                 f"{self.import_job.success_count} success, "
                 f"{self.import_job.failed_count} failed, "
                 f"{self.import_job.skipped_count} skipped"
             )
-            
+
+            yield {
+                'status': 'completed',
+                'total': self.import_job.total_count,
+                'processed': processed,
+                'success': self.import_job.success_count,
+                'failed': self.import_job.failed_count,
+                'skipped': self.import_job.skipped_count,
+                'percent': 100,
+            }
+
         except Exception as e:
-            # Job failed
             logger.error(f"Import job {self.import_job.id} failed: {e}")
             self.import_job.status = ImportStatus.FAILED.value
             self.import_job.error_message = str(e)
             self.import_job.finished_at = datetime.utcnow()
             db.session.commit()
-            
-            self._send_progress({
-                'status': 'failed',
-                'error': str(e)
-            })
+
+            yield {'status': 'failed', 'error': str(e)}
             raise
     
     def _create_product(self, match: ProductMatch) -> Dict[str, Any]:
