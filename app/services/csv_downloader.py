@@ -3,8 +3,10 @@ CSV Feed Downloader - downloads and caches Mergado project output feeds.
 """
 import logging
 import tempfile
+import json
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 import requests
 
@@ -50,10 +52,11 @@ class CSVDownloader:
         logger.info(f"Downloading CSV from: {url}")
         
         # #region agent log
-        import json
-        from datetime import datetime
-        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-            f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:52', 'message': 'Starting CSV download', 'data': {'url': url, 'cache_key': cache_key}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'A,C'}) + '\n')
+        try:
+            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:52', 'message': 'Starting CSV download', 'data': {'url': url, 'cache_key': cache_key}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'A,C'}) + '\n')
+        except Exception:
+            pass
         # #endregion
         
         try:
@@ -62,8 +65,11 @@ class CSVDownloader:
             response.raise_for_status()
             
             # #region agent log
-            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:62', 'message': 'CSV download HTTP success', 'data': {'status_code': response.status_code, 'content_type': response.headers.get('Content-Type'), 'content_length': response.headers.get('Content-Length')}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'C'}) + '\n')
+            try:
+                with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                    f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:62', 'message': 'CSV download HTTP success', 'data': {'status_code': response.status_code, 'content_type': response.headers.get('Content-Type'), 'content_length': response.headers.get('Content-Length')}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'C'}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             # Create temp file with optional cache key
@@ -89,10 +95,11 @@ class CSVDownloader:
             logger.info(f"Downloaded {bytes_written} bytes to {file_path}")
             
             # #region agent log
-            import json
-            from datetime import datetime
-            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:79', 'message': 'CSV download complete', 'data': {'bytes_written': bytes_written, 'file_path': str(file_path), 'file_exists': file_path.exists()}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'C'}) + '\n')
+            try:
+                with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                    f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:79', 'message': 'CSV download complete', 'data': {'bytes_written': bytes_written, 'file_path': str(file_path), 'file_exists': file_path.exists()}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'C'}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             # Validate file was written
@@ -111,14 +118,20 @@ class CSVDownloader:
                     logger.debug(f"CSV first line (header): {first_line_content}")
                     
                     # #region agent log
-                    with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                        f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:97', 'message': 'CSV first lines read', 'data': {'first_line': first_line_content, 'num_lines_read': len(first_lines)}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'D,E'}) + '\n')
+                    try:
+                        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                            f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:97', 'message': 'CSV first lines read', 'data': {'first_line': first_line_content, 'num_lines_read': len(first_lines)}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'D,E'}) + '\n')
+                    except Exception:
+                        pass
                     # #endregion
             except Exception as e:
                 logger.warning(f"Could not read CSV for validation: {e}")
                 # #region agent log
-                with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                    f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:103', 'message': 'CSV read failed', 'data': {'error': str(e)}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'D'}) + '\n')
+                try:
+                    with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                        f.write(json.dumps({'sessionId': '654f3d', 'location': 'csv_downloader.py:103', 'message': 'CSV read failed', 'data': {'error': str(e)}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'D'}) + '\n')
+                except Exception:
+                    pass
                 # #endregion
             
             return file_path

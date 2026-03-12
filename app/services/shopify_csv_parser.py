@@ -6,9 +6,11 @@ and custom metafields according to Shopify's import specification.
 """
 import csv
 import logging
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 logger = logging.getLogger(__name__)
@@ -222,10 +224,11 @@ class ShopifyCSVParser:
                 
                 # #region agent log
                 if row_num == 2:  # Log first data row only
-                    import json
-                    from datetime import datetime
-                    with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-                        f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:223', 'message': 'First CSV data row', 'data': {'handle': handle, 'title': row.get('Title', ''), 'variant_sku': row.get('Variant SKU', ''), 'has_handle': bool(handle), 'row_keys': list(row.keys())[:10]}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
+                    try:
+                        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                            f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:223', 'message': 'First CSV data row', 'data': {'handle': handle, 'title': row.get('Title', ''), 'variant_sku': row.get('Variant SKU', ''), 'has_handle': bool(handle), 'row_keys': list(row.keys())[:10]}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
+                    except Exception:
+                        pass
                 # #endregion
                 
                 if not handle:
@@ -262,10 +265,11 @@ class ShopifyCSVParser:
         logger.info(f"Parsed {products_parsed} products from CSV")
         
         # #region agent log
-        import json
-        from datetime import datetime
-        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
-            f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:256', 'message': 'CSV parsing complete', 'data': {'products_parsed': products_parsed}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
+        try:
+            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:256', 'message': 'CSV parsing complete', 'data': {'products_parsed': products_parsed}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
+        except Exception:
+            pass
         # #endregion
     
     def parse_all(self) -> List[ShopifyProduct]:
