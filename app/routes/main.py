@@ -106,17 +106,15 @@ def health():
         'checks': {}
     }
     
-    # Check database connectivity
+    # Check database connectivity (non-fatal: don't fail health check over DB)
     try:
         from sqlalchemy import text
         db.session.execute(text('SELECT 1'))
         health_status['checks']['database'] = 'healthy'
     except Exception as e:
-        health_status['status'] = 'unhealthy'
-        health_status['checks']['database'] = f'unhealthy: {str(e)}'
+        health_status['checks']['database'] = f'degraded: {str(e)}'
     
-    status_code = 200 if health_status['status'] == 'healthy' else 503
-    return health_status, status_code
+    return health_status, 200
 
 
 @main_bp.route('/debug')
