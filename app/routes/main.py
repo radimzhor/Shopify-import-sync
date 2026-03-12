@@ -3,7 +3,7 @@ Main routes for the Mergado Flask application.
 
 Contains the primary web routes including index, dashboard, and protected routes.
 """
-from flask import Blueprint, render_template, redirect, url_for, request
+from flask import Blueprint, render_template, redirect, url_for, request, current_app
 
 main_bp = Blueprint('routes', __name__)
 
@@ -11,11 +11,20 @@ main_bp = Blueprint('routes', __name__)
 @main_bp.route('/')
 def index():
     """Home page with login/logout options."""
-    # Check if user has token (will be checked via JavaScript)
-    return render_template(
-        'index.html',
-        settings={'flask_env': 'production'}  # Basic settings for template
-    )
+    try:
+        return render_template(
+            'index.html',
+            settings={'flask_env': 'production'}  # Basic settings for template
+        )
+    except Exception as e:
+        # If templates are missing (e.g. wrong path on host), avoid 404 and log
+        current_app.logger.exception("Index template failed")
+        return (
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Mergado</title></head>'
+            '<body><p>Loading…</p><script>window.location.href="/auth/login" + window.location.search;</script></body></html>',
+            200,
+            {'Content-Type': 'text/html; charset=utf-8'},
+        )
 
 
 @main_bp.route('/dashboard')

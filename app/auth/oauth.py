@@ -145,11 +145,12 @@ def login():
     """
     Initiate Mergado OAuth login flow.
 
-    For Store extensions (shop/project type), Mergado sends entity_id when opening
-    the app. Pass it through so Mergado can authorize in the correct context.
+    For Store extensions (shop/project type), Mergado sends entity_id or eshop
+    when opening the app. Pass it through so Mergado can authorize in the correct context.
     """
     state = request.args.get('state')
-    entity_id = request.args.get('entity_id')
+    # Mergado Store opens the app with ?eshop=<id>; OAuth API expects entity_id
+    entity_id = request.args.get('entity_id') or request.args.get('eshop')
     auth_url = oauth.get_authorization_url(state=state, entity_id=entity_id)
     return redirect(auth_url)
 
@@ -260,16 +261,13 @@ def require_auth(f):
             # For now, just allow the request
             return f(*args, **kwargs)
 
-        # For web routes, redirect to login; preserve entity_id/entity_type
+        # For web routes, redirect to login; preserve entity_id/eshop/entity_type
         # so Store extensions get the right OAuth context (Mergado requires entity_id for shop/project apps)
         next_url = url_for('auth.login')
         passthrough = {}
-        if request.args.get('entity_id'):
-            passthrough['entity_id'] = request.args.get('entity_id')
-        if request.args.get('entity_type'):
-            passthrough['entity_type'] = request.args.get('entity_type')
-        if request.args.get('state'):
-            passthrough['state'] = request.args.get('state')
+        for key in ('entity_id', 'eshop', 'entity_type', 'state'):
+            if request.args.get(key):
+                passthrough[key] = request.args.get(key)
         if passthrough:
             from urllib.parse import urlencode
             next_url += '?' + urlencode(passthrough)

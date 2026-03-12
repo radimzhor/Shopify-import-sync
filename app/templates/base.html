@@ -253,7 +253,7 @@
                 this.updateNavStatus('<i class="fas fa-external-link-alt"></i> Connecting to Mergado...');
                 const params = new URLSearchParams(window.location.search);
                 const passthrough = new URLSearchParams();
-                ['entity_id', 'entity_type', 'state'].forEach(key => {
+                ['entity_id', 'eshop', 'entity_type', 'state'].forEach(key => {
                     if (params.has(key)) passthrough.set(key, params.get(key));
                 });
                 const query = passthrough.toString();
