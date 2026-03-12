@@ -109,15 +109,29 @@ def preview_import():
     except Exception as e:
         logger.error(f"Preview failed for project {project.id}: {e}", exc_info=True)
         error_message = str(e)
-        
-        # Provide more helpful error messages
-        if 'download' in error_message.lower() or 'url' in error_message.lower():
-            error_message = f"Failed to download product feed. Please check if the project output is configured in Mergado. Error: {error_message}"
-        elif 'parse' in error_message.lower() or 'csv' in error_message.lower():
-            error_message = f"Failed to parse CSV feed. Please check if the project is configured for Shopify CSV output. Error: {error_message}"
-        elif 'shopify' in error_message.lower() or 'connection' in error_message.lower():
-            error_message = f"Failed to connect to Shopify. Please check if Shopify is connected in your Mergado Keychain. Error: {error_message}"
-        
+        msg_lower = error_message.lower()
+
+        if '404' in error_message and 'shopify/proxy' in msg_lower:
+            error_message = (
+                "Shopify is not connected for this shop. "
+                "Please set up the Shopify connection in your Mergado Keychain first."
+            )
+        elif 'shopify' in msg_lower or 'connection' in msg_lower:
+            error_message = (
+                "Failed to connect to Shopify. "
+                "Please check if Shopify is connected in your Mergado Keychain."
+            )
+        elif 'download' in msg_lower or 'url' in msg_lower:
+            error_message = (
+                "Failed to download product feed. "
+                "Please check if the project output is configured in Mergado."
+            )
+        elif 'parse' in msg_lower or 'csv' in msg_lower:
+            error_message = (
+                "Failed to parse CSV feed. "
+                "Please check if the project is configured for Shopify CSV output."
+            )
+
         return jsonify({'error': error_message}), 500
 
 

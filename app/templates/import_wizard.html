@@ -186,9 +186,8 @@
                 })
             });
             
-            if (!response.ok) throw new Error('Preview failed');
-            
             const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Preview failed');
             
             document.getElementById('create-count').textContent = data.products_to_create || 0;
             document.getElementById('update-count').textContent = data.products_to_update || 0;
