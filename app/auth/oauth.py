@@ -173,9 +173,15 @@ def callback():
 
     try:
         tokens = oauth.exchange_code_for_tokens(code)
-        current_app.logger.info("Successfully authenticated with Mergado")
+        current_app.logger.info(
+            "Successfully authenticated with Mergado"
+            f" (entity_id={tokens.get('entity_id')}, user_id={tokens.get('user_id')})"
+        )
         
-        # Return HTML page that sets tokens in localStorage and redirects
+        entity_id = tokens.get('entity_id', '')
+        user_id = tokens.get('user_id', '')
+        refresh_token_val = tokens.get('refresh_token', '')
+
         html = f"""
 <!DOCTYPE html>
 <html>
@@ -188,14 +194,13 @@ def callback():
         <p>Please wait while we complete authentication.</p>
     </div>
     <script>
-        // Store tokens in localStorage
         localStorage.setItem('mergado_access_token', '{tokens['access_token']}');
-        if ('{tokens.get('refresh_token', None)}' !== 'None') {{
-            localStorage.setItem('mergado_refresh_token', '{tokens.get('refresh_token', None)}');
+        if ('{refresh_token_val}') {{
+            localStorage.setItem('mergado_refresh_token', '{refresh_token_val}');
         }}
         localStorage.setItem('mergado_expires_at', '{tokens['expires_at']}');
-        
-        // Redirect to dashboard
+        localStorage.setItem('mergado_entity_id', '{entity_id}');
+        localStorage.setItem('mergado_user_id', '{user_id}');
         window.location.href = '/';
     </script>
 </body>
