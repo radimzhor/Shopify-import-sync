@@ -4,6 +4,7 @@ Product Importer - imports products to Shopify with progress tracking.
 Handles batch import with SSE progress updates, error handling, and logging.
 """
 import logging
+import time
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 
@@ -243,6 +244,9 @@ class ProductImporter:
 
                 processed += 1
                 db.session.commit()
+
+                # Throttle Shopify API calls (respect 2 req/sec limit, reduce memory pressure)
+                time.sleep(0.6)
 
                 total = max(self.import_job.total_count, 1)
                 yield {

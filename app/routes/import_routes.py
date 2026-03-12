@@ -35,6 +35,8 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
     Updates the ImportJob row after every product so the polling endpoint
     always has fresh numbers.
     """
+    import gc
+
     with app.app_context():
         import_job = ImportJob.query.get(job_id)
         if not import_job:
@@ -60,11 +62,15 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
             matcher = ProductMatcher(shopify_service)
             matches = matcher.match_products(csv_products)
 
+            # Free CSV data — no longer needed after matching
+            del csv_products, parser, downloader
+            gc.collect()
+
             logger.info(f"[BG] Job {job_id}: matched {len(matches)} products, importing...")
             importer = ProductImporter(shopify_service, import_job, progress_callback=None)
 
             for _progress in importer.import_products_iter(matches):
-                pass  # DB is updated inside the iterator; nothing else needed
+                pass
 
             logger.info(
                 f"[BG] Job {job_id} done: "
@@ -75,9 +81,14 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
 
         except Exception as e:
             logger.error(f"[BG] Job {job_id} failed: {e}", exc_info=True)
-            import_job.status = ImportStatus.FAILED.value
-            import_job.error_message = str(e)
-            db.session.commit()
+            try:
+                import_job = ImportJob.query.get(job_id)
+                if import_job:
+                    import_job.status = ImportStatus.FAILED.value
+                    import_job.error_message = str(e)
+                    db.session.commit()
+            except Exception:
+                logger.error(f"[BG] Failed to update job {job_id} status after error")
 
 
 @import_bp.route('/preview', methods=['POST'])
