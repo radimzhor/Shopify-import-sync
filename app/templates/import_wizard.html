@@ -258,6 +258,8 @@
         eventSource.onerror = function(error) {
             console.error('SSE error:', error);
             eventSource.close();
+            // Import may still be running server-side; poll for final status
+            pollImportStatus(jobId);
         };
     }
 
@@ -327,6 +329,44 @@
             document.getElementById('writeback-loading').style.display = 'none';
             alert('Writeback failed: ' + error.message);
         }
+    }
+
+    async function pollImportStatus(jobId) {
+        const token = window.authManager.getAccessToken();
+        const statusMsg = document.getElementById('import-status-message');
+        statusMsg.className = 'alert alert-warning';
+        statusMsg.innerHTML = '<i class="fas fa-sync fa-spin"></i> Connection lost. Checking import status...';
+
+        for (let i = 0; i < 60; i++) {
+            await new Promise(r => setTimeout(r, 5000));
+            try {
+                const resp = await fetch(`/api/import/status/${jobId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) continue;
+                const data = await resp.json();
+                updateProgress({
+                    total: data.total_count,
+                    success: data.success_count,
+                    failed: data.failed_count,
+                    skipped: data.skipped_count,
+                    percent: data.total_count ? Math.round((data.success_count + data.failed_count) / data.total_count * 100) : 0
+                });
+                if (data.status === 'completed') {
+                    updateProgress({ percent: 100, total: data.total_count, success: data.success_count, failed: data.failed_count, skipped: data.skipped_count });
+                    showWritebackStep();
+                    return;
+                }
+                if (data.status === 'failed') {
+                    showError(data.error_message || 'Import failed');
+                    return;
+                }
+                statusMsg.innerHTML = `<i class="fas fa-sync fa-spin"></i> Reconnecting... Import still running (${data.success_count} success, ${data.failed_count} failed)`;
+            } catch (e) {
+                console.error('Poll error:', e);
+            }
+        }
+        showError('Import timed out. Check the import history for results.');
     }
 
     function showError(message) {
