@@ -214,11 +214,13 @@ def stream_progress(job_id: int):
             project = import_job.project
             shop_id = project.shop.mergado_shop_id
             
-            # Extract token from Authorization header
+            # Extract token from header or query param (SSE/EventSource can't set headers)
             from flask import request as current_request
             auth_header = current_request.headers.get('Authorization', '')
             access_token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
-            
+            if not access_token:
+                access_token = current_request.args.get('token', '')
+
             if not access_token:
                 yield f"data: {json.dumps({'status': 'failed', 'error': 'Access token required'})}\n\n"
                 return

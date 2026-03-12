@@ -259,11 +259,14 @@ def require_auth(f):
 
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # For API routes, check Authorization header
+        # Check Authorization header first
         auth_header = request.headers.get('Authorization')
         if auth_header and auth_header.startswith('Bearer '):
-            # Token is present in header - validation would happen here
-            # For now, just allow the request
+            return f(*args, **kwargs)
+
+        # Fallback: check query parameter (needed for SSE/EventSource which can't set headers)
+        token_param = request.args.get('token')
+        if token_param:
             return f(*args, **kwargs)
 
         # For web routes, redirect to login; preserve entity_id/eshop/entity_type
