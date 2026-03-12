@@ -220,6 +220,14 @@ class ShopifyCSVParser:
             for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
                 handle = row.get('Handle', '').strip()
                 
+                # #region agent log
+                if row_num == 2:  # Log first data row only
+                    import json
+                    from datetime import datetime
+                    with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+                        f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:223', 'message': 'First CSV data row', 'data': {'handle': handle, 'title': row.get('Title', ''), 'variant_sku': row.get('Variant SKU', ''), 'has_handle': bool(handle), 'row_keys': list(row.keys())[:10]}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
+                # #endregion
+                
                 if not handle:
                     # Empty handle = variant row (continue current product)
                     if current_product:
@@ -252,6 +260,13 @@ class ShopifyCSVParser:
                 yield current_product
         
         logger.info(f"Parsed {products_parsed} products from CSV")
+        
+        # #region agent log
+        import json
+        from datetime import datetime
+        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+            f.write(json.dumps({'sessionId': '654f3d', 'location': 'shopify_csv_parser.py:256', 'message': 'CSV parsing complete', 'data': {'products_parsed': products_parsed}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'E'}) + '\n')
+        # #endregion
     
     def parse_all(self) -> List[ShopifyProduct]:
         """

@@ -65,6 +65,13 @@ def preview_import():
     if not project:
         raise BadRequest(f"Project with ID {project_id} not found")
     
+    # #region agent log
+    import json
+    from datetime import datetime
+    with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-654f3d.log', 'a') as f:
+        f.write(json.dumps({'sessionId': '654f3d', 'location': 'import_routes.py:66', 'message': 'Preview starting - project loaded', 'data': {'project_db_id': project.id, 'project_mergado_id': project.mergado_project_id, 'output_url': project.output_url, 'output_url_is_none': project.output_url is None, 'output_format': project.output_format}, 'timestamp': int(datetime.now().timestamp() * 1000), 'hypothesisId': 'B'}) + '\n')
+    # #endregion
+    
     if not project.output_url:
         raise BadRequest("Project is missing output URL. Please reload the project list.")
     
