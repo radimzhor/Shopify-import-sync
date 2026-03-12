@@ -27,22 +27,6 @@ logger = logging.getLogger(__name__)
 import_bp = Blueprint('import', __name__, url_prefix='/api/import')
 
 
-def _get_mem_mb() -> float:
-    """Return current RSS in MB (Linux /proc/self/status, fallback resource)."""
-    try:
-        with open("/proc/self/status") as f:
-            for line in f:
-                if line.startswith("VmRSS:"):
-                    return int(line.split()[1]) / 1024.0
-    except Exception:
-        pass
-    try:
-        import resource
-        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
-    except Exception:
-        return -1.0
-
-
 def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str):
     """
     Run the full import pipeline in a background thread.
@@ -61,10 +45,6 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
 
         project = import_job.project
 
-        # #region agent log
-        logger.info(f"[DBG-654f3d] job={job_id} phase=start mem_mb={_get_mem_mb():.1f}")
-        # #endregion
-
         try:
             mergado_client = MergadoClient(access_token)
             shopify_service = ShopifyService(mergado_client, shop_id)
@@ -78,24 +58,12 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
             parser = ShopifyCSVParser(csv_path)
             csv_products = parser.parse_all()
 
-            # #region agent log
-            logger.info(f"[DBG-654f3d] job={job_id} phase=after_parse products={len(csv_products)} mem_mb={_get_mem_mb():.1f}")
-            # #endregion
-
             logger.info(f"[BG] Job {job_id}: parsed {len(csv_products)} products, matching...")
             matcher = ProductMatcher(shopify_service)
             matches = matcher.match_products(csv_products)
 
-            # #region agent log
-            logger.info(f"[DBG-654f3d] job={job_id} phase=after_match matches={len(matches)} mem_mb={_get_mem_mb():.1f}")
-            # #endregion
-
             del csv_products, parser, downloader, matcher
             gc.collect()
-
-            # #region agent log
-            logger.info(f"[DBG-654f3d] job={job_id} phase=after_gc mem_mb={_get_mem_mb():.1f}")
-            # #endregion
 
             logger.info(f"[BG] Job {job_id}: matched {len(matches)} products, importing...")
             importer = ProductImporter(shopify_service, import_job, progress_callback=None)
@@ -112,15 +80,9 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
                 f"{import_job.failed_count} failed, "
                 f"{import_job.skipped_count} skipped"
             )
-            # #region agent log
-            logger.info(f"[DBG-654f3d] job={job_id} phase=done mem_mb={_get_mem_mb():.1f}")
-            # #endregion
 
         except Exception as e:
             logger.error(f"[BG] Job {job_id} failed: {e}", exc_info=True)
-            # #region agent log
-            logger.info(f"[DBG-654f3d] job={job_id} phase=error error={str(e)[:200]} mem_mb={_get_mem_mb():.1f}")
-            # #endregion
             try:
                 import_job = ImportJob.query.get(job_id)
                 if import_job:
@@ -308,19 +270,8 @@ def get_import_status(job_id: int):
     Returns:
         Import job status and counts
     """
-    import time as _time
-    _t0 = _time.monotonic()
-
     import_job = ImportJob.query.get_or_404(job_id)
-    result = jsonify(import_job.to_dict())
-
-    # #region agent log
-    _elapsed = (_time.monotonic() - _t0) * 1000
-    if _elapsed > 500:
-        logger.warning(f"[DBG-654f3d] status_poll SLOW job={job_id} elapsed_ms={_elapsed:.0f}")
-    # #endregion
-
-    return result
+    return jsonify(import_job.to_dict())
 
 
 @import_bp.route('/history')

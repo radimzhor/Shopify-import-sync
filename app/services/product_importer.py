@@ -186,17 +186,6 @@ class ProductImporter:
         for progress in self.import_products_iter(matches):
             self._send_progress(progress)
 
-    @staticmethod
-    def _mem_mb() -> float:
-        try:
-            with open("/proc/self/status") as f:
-                for line in f:
-                    if line.startswith("VmRSS:"):
-                        return int(line.split()[1]) / 1024.0
-        except Exception:
-            pass
-        return -1.0
-
     def import_products_iter(self, matches: List[ProductMatch]):
         """
         Import products one at a time, yielding progress dicts after each.
@@ -268,14 +257,8 @@ class ProductImporter:
                 db.session.commit()
                 db.session.expire_all()
 
-                # #region agent log
                 if processed % 25 == 0:
                     gc.collect()
-                    logger.info(
-                        f"[DBG-654f3d] import_iter job={self.import_job.id} "
-                        f"processed={processed} mem_mb={self._mem_mb():.1f}"
-                    )
-                # #endregion
 
                 time.sleep(0.6)
 
