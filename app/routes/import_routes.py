@@ -197,24 +197,19 @@ def stream_progress(job_id: int):
     
     def generate() -> Generator[str, None, None]:
         """Generate SSE events."""
+        logger.info(f"[SSE] Starting SSE stream for job {job_id}")
+
         # Send initial status
         yield f"data: {json.dumps({'status': import_job.status})}\n\n"
-        
-        # If job already completed, send final status
+
         if import_job.status in [ImportStatus.COMPLETED.value, ImportStatus.FAILED.value]:
             yield f"data: {json.dumps({'status': 'completed'})}\n\n"
             return
-        
-        # Start import in this request
-        # Note: For production, this should be a background task (Celery, RQ, etc.)
-        # For MVP, we'll process inline
-        
+
         try:
-            # Get project and initialize services
             project = import_job.project
             shop_id = project.shop.mergado_shop_id
-            
-            # Extract token from header or query param (SSE/EventSource can't set headers)
+
             from flask import request as current_request
             auth_header = current_request.headers.get('Authorization', '')
             access_token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
@@ -224,11 +219,14 @@ def stream_progress(job_id: int):
             if not access_token:
                 yield f"data: {json.dumps({'status': 'failed', 'error': 'Access token required'})}\n\n"
                 return
-            
+
             mergado_client = MergadoClient(access_token)
             shopify_service = ShopifyService(mergado_client, shop_id)
-            
-            # Download and parse CSV
+
+            # Send keepalive while downloading CSV
+            logger.info(f"[SSE] Downloading CSV for project {project.mergado_project_id}")
+            yield f": keepalive\n\n"
+
             downloader = CSVDownloader()
             csv_path = downloader.download(
                 project.output_url,
@@ -236,27 +234,24 @@ def stream_progress(job_id: int):
             )
             parser = ShopifyCSVParser(csv_path)
             csv_products = parser.parse_all()
-            
-            # Match products
+
+            logger.info(f"[SSE] Parsed {len(csv_products)} products, matching...")
+            yield f": keepalive\n\n"
+
             matcher = ProductMatcher(shopify_service)
             matches = matcher.match_products(csv_products)
-            
-            # Define progress callback
-            def progress_callback(data: dict):
-                event = f"data: {json.dumps(data)}\n\n"
-                # Note: In real implementation, this would use a queue/Redis
-                # For MVP, we'll store updates and yield them
-                pass
-            
-            # Import products
+
+            logger.info(f"[SSE] Matched {len(matches)} products, starting import...")
+            yield f"data: {json.dumps({'status': 'importing', 'total': len([m for m in matches if m.action.value != 'skip'])})}\n\n"
+
             importer = ProductImporter(
                 shopify_service,
                 import_job,
-                progress_callback=None  # Disabled for inline processing
+                progress_callback=None
             )
             importer.import_products(matches)
-            
-            # Send final update
+
+            logger.info(f"[SSE] Import complete: success={import_job.success_count}, failed={import_job.failed_count}")
             final_data = {
                 'status': 'completed',
                 'total': import_job.total_count,
@@ -266,9 +261,9 @@ def stream_progress(job_id: int):
                 'percent': 100
             }
             yield f"data: {json.dumps(final_data)}\n\n"
-            
+
         except Exception as e:
-            logger.error(f"Import failed: {e}", exc_info=True)
+            logger.error(f"[SSE] Import failed: {e}", exc_info=True)
             yield f"data: {json.dumps({'status': 'failed', 'error': str(e)})}\n\n"
     
     return Response(
