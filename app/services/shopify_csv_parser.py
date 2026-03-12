@@ -220,15 +220,6 @@ class ShopifyCSVParser:
             for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
                 handle = row.get('Handle', '').strip()
                 
-                # #region agent log - Hypothesis B,E: check first row content & headers
-                if row_num == 2:
-                    logger.info(
-                        f"[DBG-654f3d] HYP-BE first_row: handle={handle!r}, "
-                        f"title={row.get('Title', '')!r}, "
-                        f"sku={row.get('Variant SKU', '')!r}, "
-                        f"keys={list(row.keys())[:10]}"
-                    )
-                # #endregion
                 
                 if not handle:
                     # Empty handle = variant row (continue current product)
@@ -263,9 +254,6 @@ class ShopifyCSVParser:
         
         logger.info(f"Parsed {products_parsed} products from CSV")
         
-        # #region agent log
-        logger.info(f"[DBG-654f3d] parse complete: products_parsed={products_parsed}")
-        # #endregion
     
     def parse_all(self) -> List[ShopifyProduct]:
         """

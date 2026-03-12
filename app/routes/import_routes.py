@@ -62,15 +62,6 @@ def preview_import():
     if not project:
         raise BadRequest(f"Project with ID {project_id} not found")
     
-    # #region agent log - Hypothesis A,B: trace what URL the preview will download
-    logger.info(
-        f"[DBG-654f3d] HYP-AB preview: db_id={project.id}, "
-        f"mergado_id={project.mergado_project_id}, "
-        f"output_url={project.output_url!r}, "
-        f"output_format={project.output_format!r}"
-    )
-    # #endregion
-
     if not project.output_url:
         raise BadRequest("Project is missing output URL. Please reload the project list.")
     

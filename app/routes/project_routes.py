@@ -102,17 +102,8 @@ def get_shop_projects(shop_id: str):
                 logger.warning(f"Failed to fetch details for project {project_id}: {e}")
                 project_details = api_project
             
-            # #region agent log - Hypothesis A: check what 'url' field contains (it may be INPUT url, not output)
-            input_url_field = project_details.get('url')
             slug = project_details.get('slug')
             output_format = project_details.get('output_format', '')
-            logger.info(
-                f"[DBG-654f3d] HYP-A project {project_id}: "
-                f"url_field={input_url_field!r}, slug={slug!r}, "
-                f"output_format={output_format!r}, "
-                f"all_keys={list(project_details.keys())}"
-            )
-            # #endregion
 
             # Construct output URL from slug (NOT from 'url' field which is the INPUT feed)
             output_url = None
@@ -123,15 +114,9 @@ def get_shop_projects(shop_id: str):
                 else:
                     extension = 'xml'
                 output_url = f"https://feeds.mergado.com/{slug}.{extension}"
-                # #region agent log - Hypothesis C,D,E: log constructed URL for comparison
-                logger.info(
-                    f"[DBG-654f3d] HYP-CDE project {project_id}: "
-                    f"constructed_url={output_url!r}, slug={slug!r}, "
-                    f"extension={extension!r}, output_format={fmt!r}"
-                )
-                # #endregion
+                logger.info(f"Constructed output URL for project {project_id}: {output_url}")
             else:
-                logger.warning(f"[DBG-654f3d] Project {project_id} has no slug, cannot construct output URL")
+                logger.warning(f"Project {project_id} has no slug, cannot construct output URL")
             
             # Get or create project
             project = Project.query.filter_by(mergado_project_id=project_id).first()
@@ -149,13 +134,6 @@ def get_shop_projects(shop_id: str):
                 project.output_url = output_url
                 project.output_format = project_details.get('output_format', 'shopify_csv')
 
-            # #region agent log
-            logger.info(
-                f"[DBG-654f3d] Project saved: mergado_id={project_id}, "
-                f"db_id={getattr(project, 'id', 'new')}, "
-                f"output_url={project.output_url!r}"
-            )
-            # #endregion
         
         db.session.commit()
         
