@@ -3,6 +3,7 @@ Product Importer - imports products to Shopify with progress tracking.
 
 Handles batch import with SSE progress updates, error handling, and logging.
 """
+import gc
 import logging
 import time
 from typing import Dict, List, Optional, Any, Callable
@@ -185,12 +186,20 @@ class ProductImporter:
         for progress in self.import_products_iter(matches):
             self._send_progress(progress)
 
+    @staticmethod
+    def _mem_mb() -> float:
+        try:
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        return int(line.split()[1]) / 1024.0
+        except Exception:
+            pass
+        return -1.0
+
     def import_products_iter(self, matches: List[ProductMatch]):
         """
         Import products one at a time, yielding progress dicts after each.
-
-        Designed for SSE streaming: the caller can yield SSE events between products
-        to keep the connection alive and show real-time progress.
 
         Yields:
             dict with status, counts, and percent
@@ -207,9 +216,10 @@ class ProductImporter:
         }
 
         processed = 0
+        pending_skips = 0
 
         try:
-            for match in matches:
+            for idx, match in enumerate(matches):
                 if match.action == MatchAction.SKIP:
                     self._log_product_result(
                         product_identifier=match.primary_sku or match.csv_product.handle,
@@ -217,7 +227,18 @@ class ProductImporter:
                         error_message=match.reason,
                     )
                     self.import_job.skipped_count += 1
+                    matches[idx] = None
+                    pending_skips += 1
+                    if pending_skips >= 50:
+                        db.session.commit()
+                        db.session.expire_all()
+                        pending_skips = 0
                     continue
+
+                if pending_skips > 0:
+                    db.session.commit()
+                    db.session.expire_all()
+                    pending_skips = 0
 
                 try:
                     if match.action == MatchAction.CREATE:
@@ -242,10 +263,20 @@ class ProductImporter:
                     )
                     self.import_job.failed_count += 1
 
+                matches[idx] = None
                 processed += 1
                 db.session.commit()
+                db.session.expire_all()
 
-                # Throttle Shopify API calls (respect 2 req/sec limit, reduce memory pressure)
+                # #region agent log
+                if processed % 25 == 0:
+                    gc.collect()
+                    logger.info(
+                        f"[DBG-654f3d] import_iter job={self.import_job.id} "
+                        f"processed={processed} mem_mb={self._mem_mb():.1f}"
+                    )
+                # #endregion
+
                 time.sleep(0.6)
 
                 total = max(self.import_job.total_count, 1)
@@ -258,6 +289,10 @@ class ProductImporter:
                     'skipped': self.import_job.skipped_count,
                     'percent': int((processed / total) * 100),
                 }
+
+            if pending_skips > 0:
+                db.session.commit()
+                db.session.expire_all()
 
             self.import_job.status = ImportStatus.COMPLETED.value
             self.import_job.finished_at = datetime.utcnow()

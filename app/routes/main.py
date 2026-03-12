@@ -62,7 +62,12 @@ def health():
     """
     from app import db
     import sys
-    
+    import time as _time
+    import logging as _logging
+
+    _t0 = _time.monotonic()
+    _hlog = _logging.getLogger(__name__)
+
     health_status = {
         'status': 'healthy',
         'service': 'mergado-shopify-import-sync',
@@ -71,14 +76,19 @@ def health():
         'checks': {}
     }
     
-    # Check database connectivity (non-fatal: don't fail health check over DB)
     try:
         from sqlalchemy import text
         db.session.execute(text('SELECT 1'))
         health_status['checks']['database'] = 'healthy'
     except Exception as e:
         health_status['checks']['database'] = f'degraded: {str(e)}'
-    
+
+    # #region agent log
+    _elapsed = (_time.monotonic() - _t0) * 1000
+    if _elapsed > 500:
+        _hlog.warning(f"[DBG-654f3d] health_check SLOW elapsed_ms={_elapsed:.0f}")
+    # #endregion
+
     return health_status, 200
 
 
