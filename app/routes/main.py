@@ -3,53 +3,18 @@ Main routes for the Mergado Flask application.
 
 Contains the primary web routes including index, dashboard, and protected routes.
 """
-import json
-import os
-import time
-from flask import Blueprint, render_template, redirect, url_for, request, current_app
+from flask import Blueprint, render_template, redirect, url_for, request
 
 main_bp = Blueprint('routes', __name__)
-
-_DEBUG_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.cursor', 'debug-ac150f.log')
-
-
-def _debug_write(payload):
-    try:
-        with open(_DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps(payload) + '\n')
-    except Exception:
-        pass
 
 
 @main_bp.route('/')
 def index():
     """Home page with login/logout options."""
-    # #region agent log
-    _debug_write({"sessionId": "ac150f", "timestamp": int(time.time() * 1000), "location": "main:index:entry", "message": "index hit", "data": {"path": request.path, "args": dict(request.args)}, "hypothesisId": "H2_H4"})
-    print(f"[DEBUG ac150f] index route hit path={request.path!r} args={dict(request.args)}", flush=True)
-    # #endregion
-    try:
-        out = render_template(
-            'index.html',
-            settings={'flask_env': 'production'}  # Basic settings for template
-        )
-        # #region agent log
-        _debug_write({"sessionId": "ac150f", "timestamp": int(time.time() * 1000), "location": "main:index:return", "message": "index template ok", "data": {}, "hypothesisId": "H3"})
-        # #endregion
-        return out
-    except Exception as e:
-        # If templates are missing (e.g. wrong path on host), avoid 404 and log
-        current_app.logger.exception("Index template failed")
-        # #region agent log
-        _debug_write({"sessionId": "ac150f", "timestamp": int(time.time() * 1000), "location": "main:index:except", "message": "index fallback", "data": {"error": str(e)}, "hypothesisId": "H3"})
-        print(f"[DEBUG ac150f] index fallback error={e!r}", flush=True)
-        # #endregion
-        return (
-            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Mergado</title></head>'
-            '<body><p>Loading…</p><script>window.location.href="/auth/login" + window.location.search;</script></body></html>',
-            200,
-            {'Content-Type': 'text/html; charset=utf-8'},
-        )
+    return render_template(
+        'index.html',
+        settings={'flask_env': 'production'}
+    )
 
 
 @main_bp.route('/dashboard')

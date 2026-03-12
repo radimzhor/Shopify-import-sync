@@ -59,4 +59,5 @@ USER appuser
 EXPOSE 10000
 
 # Run the application — use $PORT so Render's proxy can route traffic
+ENV FLASK_APP=main.py
 CMD sh -c "flask db upgrade || true && exec gunicorn --bind 0.0.0.0:\${PORT:-5000} --workers 2 --threads 4 --timeout 300 --log-level info main:app"
