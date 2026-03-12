@@ -150,10 +150,19 @@ def start_import():
     if not project_id or not shop_id:
         raise BadRequest("project_id and shop_id required")
     
-    # Get project from database
-    project = Project.query.filter_by(mergado_project_id=project_id).first()
-    if not project or not project.output_url:
-        raise BadRequest("Project not configured or missing output URL")
+    # Get project from database (try both database ID and Mergado project ID)
+    try:
+        project = Project.query.get(int(project_id))
+    except (ValueError, TypeError):
+        project = None
+
+    if not project:
+        project = Project.query.filter_by(mergado_project_id=str(project_id)).first()
+
+    if not project:
+        raise BadRequest(f"Project with ID {project_id} not found")
+    if not project.output_url:
+        raise BadRequest("Project is missing output URL. Please reload the project list.")
     
     # Create import job
     import_job = ImportJob(

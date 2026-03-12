@@ -221,9 +221,8 @@
                 })
             });
             
-            if (!response.ok) throw new Error('Failed to start import');
-            
             const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to start import');
             currentJobId = data.job_id;
             
             document.getElementById('step-preview').style.display = 'none';
