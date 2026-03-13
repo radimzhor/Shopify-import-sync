@@ -1,16 +1,28 @@
 """
 Shopify ID Writeback - writes Shopify product IDs back to Mergado.
 
-Uses batch_rewriting rules to map SKU -> Shopify ID in Mergado elements.
+Workflow per import job:
+1. Upsert SKU -> Shopify ID mappings into ShopifyIDMapping table
+2. Ensure the shopify_id element exists in the Mergado project
+3. Ensure a custom app rule instance exists on the project (created once, reused)
+
+The actual writing of values happens when Mergado applies rules: it calls
+POST /api/rules/shopify-id-writeback with a batch of products, and we return
+the shopify_id values from ShopifyIDMapping.
 """
 import logging
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, Any
+
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app import db
 from app.models.project import Project
 from app.models.import_log import ImportLog, ImportLogStatus
+from app.models.shopify_id_mapping import ShopifyIDMapping
 from app.services.mergado_client import MergadoClient
 from app.services.exceptions import APIError
+from settings import settings
 
 
 logger = logging.getLogger(__name__)
@@ -18,210 +30,220 @@ logger = logging.getLogger(__name__)
 
 class ShopifyIDWriteback:
     """
-    Manages Shopify ID writeback to Mergado via batch_rewriting rules.
-    
-    Workflow:
-    1. Ensure shopify_id element exists in project
-    2. Collect SKU -> Shopify ID mappings from successful imports
-    3. Create batch_rewriting rule to write IDs
-    4. Mark project dirty to trigger rule application
+    Manages Shopify ID writeback to Mergado via a custom app rule.
+
+    After each import:
+    1. Mappings are upserted into ShopifyIDMapping (fast lookup table)
+    2. A single custom app rule is created on the project (once ever)
+
+    Mergado then calls our /api/rules/shopify-id-writeback endpoint whenever
+    it applies rules, and we return current shopify_id values for each product.
     """
-    
-    # Element configuration
+
     SHOPIFY_ID_ELEMENT_NAME = 'shopify_id'
-    SHOPIFY_ID_ELEMENT_HIDDEN = False
-    
-    # Rule configuration
-    RULE_NAME_PREFIX = 'Shopify ID Mapping'
-    SOURCE_ELEMENT = 'ITEM_ID'  # SKU element in Mergado
-    
+
     def __init__(self, mergado_client: MergadoClient, project: Project):
-        """
-        Initialize writeback service.
-        
-        Args:
-            mergado_client: Initialized MergadoClient
-            project: Database Project model
-        """
         self.client = mergado_client
         self.project = project
-    
-    def ensure_shopify_id_element(self) -> str:
+
+    # -------------------------------------------------------------------------
+    # Step 1: Upsert mappings into ShopifyIDMapping
+    # -------------------------------------------------------------------------
+
+    def upsert_sku_mappings(self, import_job_id: int) -> int:
         """
-        Ensure shopify_id element exists in Mergado project.
-        
-        Returns:
-            Element ID (creates if needed, or uses existing)
-        """
-        # Check if already created and stored
-        if self.project.shopify_id_element_id:
-            logger.info(
-                f"Using existing shopify_id element: "
-                f"{self.project.shopify_id_element_id}"
-            )
-            return self.project.shopify_id_element_id
-        
-        # Check if element exists by listing elements
-        try:
-            elements = self.client.get_project_elements(
-                self.project.mergado_project_id
-            )
-            
-            # Search for shopify_id element
-            for element in elements:
-                if element.get('name') == self.SHOPIFY_ID_ELEMENT_NAME:
-                    element_id = element['id']
-                    logger.info(f"Found existing shopify_id element: {element_id}")
-                    
-                    # Store in project
-                    self.project.shopify_id_element_id = element_id
-                    db.session.commit()
-                    
-                    return element_id
-            
-            # Element doesn't exist, create it
-            logger.info(f"Creating shopify_id element in project {self.project.mergado_project_id}")
-            
-            element = self.client.create_element(
-                self.project.mergado_project_id,
-                name=self.SHOPIFY_ID_ELEMENT_NAME,
-                hidden=self.SHOPIFY_ID_ELEMENT_HIDDEN
-            )
-            
-            element_id = element['id']
-            logger.info(f"Created shopify_id element: {element_id}")
-            
-            # Store in project
-            self.project.shopify_id_element_id = element_id
-            db.session.commit()
-            
-            return element_id
-            
-        except APIError as e:
-            logger.error(f"Failed to ensure shopify_id element: {e}")
-            raise
-    
-    def collect_sku_mappings(
-        self,
-        import_job_id: int
-    ) -> List[Tuple[str, str]]:
-        """
-        Collect SKU -> Shopify ID mappings from successful import logs.
-        
+        Upsert SKU -> Shopify ID mappings from a completed import job.
+
+        Reads all successful ImportLog entries that have a shopify_product_id,
+        then upserts them into ShopifyIDMapping (insert or update on conflict).
+
         Args:
-            import_job_id: Import job ID to get logs from
-            
+            import_job_id: Completed import job ID
+
         Returns:
-            List of (sku, shopify_product_id) tuples
+            Number of mappings upserted
         """
-        # Query successful import logs with Shopify IDs
         logs = ImportLog.query.filter_by(
             import_job_id=import_job_id,
             status=ImportLogStatus.SUCCESS.value
         ).filter(
             ImportLog.shopify_product_id.isnot(None)
         ).all()
-        
-        mappings = []
-        for log in logs:
-            # product_identifier is the SKU
-            mappings.append((log.product_identifier, log.shopify_product_id))
-        
-        logger.info(f"Collected {len(mappings)} SKU -> Shopify ID mappings")
-        return mappings
-    
-    def create_writeback_rule(
-        self,
-        mappings: List[Tuple[str, str]]
-    ) -> Dict[str, Any]:
+
+        if not logs:
+            logger.info(f"No successful import logs with Shopify IDs for job {import_job_id}")
+            return 0
+
+        rows = [
+            {
+                'project_id': self.project.id,
+                'sku': log.product_identifier,
+                'shopify_product_id': log.shopify_product_id,
+                'shopify_variant_id': log.shopify_variant_id,
+                'updated_at': db.func.now(),
+            }
+            for log in logs
+        ]
+
+        dialect = db.engine.dialect.name
+        if dialect == 'postgresql':
+            stmt = pg_insert(ShopifyIDMapping).values(rows)
+            stmt = stmt.on_conflict_do_update(
+                constraint='uq_shopify_id_mapping_project_sku',
+                set_={
+                    'shopify_product_id': stmt.excluded.shopify_product_id,
+                    'shopify_variant_id': stmt.excluded.shopify_variant_id,
+                    'updated_at': stmt.excluded.updated_at,
+                }
+            )
+        else:
+            stmt = sqlite_insert(ShopifyIDMapping).values(rows)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['project_id', 'sku'],
+                set_={
+                    'shopify_product_id': stmt.excluded.shopify_product_id,
+                    'shopify_variant_id': stmt.excluded.shopify_variant_id,
+                    'updated_at': stmt.excluded.updated_at,
+                }
+            )
+
+        db.session.execute(stmt)
+        db.session.commit()
+        logger.info(f"Upserted {len(rows)} SKU mappings for project {self.project.mergado_project_id}")
+        return len(rows)
+
+    # -------------------------------------------------------------------------
+    # Step 2: Ensure shopify_id element exists
+    # -------------------------------------------------------------------------
+
+    def ensure_shopify_id_element(self) -> str:
         """
-        Create batch_rewriting rule to write Shopify IDs.
-        
-        Args:
-            mappings: List of (sku, shopify_product_id) tuples
-            
+        Ensure the shopify_id element exists in the Mergado project.
+
+        Checks the stored element ID first. If missing, lists project elements
+        (returned as a name-keyed dict) to find it, or creates it.
+
         Returns:
-            Created rule data
+            Element ID string
         """
-        if not mappings:
-            logger.warning("No mappings to write back")
-            return {}
-        
-        # Ensure element exists
-        element_id = self.ensure_shopify_id_element()
-        
-        # Build batch_rewriting data format
-        # Format: [["source_value", "target_value"], ...]
-        batch_data = [[sku, shopify_id] for sku, shopify_id in mappings]
-        
-        # Create empty query (applies to all products)
-        query_response = self.client.create_query(
+        if self.project.shopify_id_element_id:
+            logger.info(f"Using existing shopify_id element: {self.project.shopify_id_element_id}")
+            return self.project.shopify_id_element_id
+
+        # API returns a dict keyed by element name: {"shopify_id": {"id": "42", ...}, ...}
+        elements_dict = self.client.get_project_elements(self.project.mergado_project_id)
+
+        if self.SHOPIFY_ID_ELEMENT_NAME in elements_dict:
+            element_data = elements_dict[self.SHOPIFY_ID_ELEMENT_NAME]
+            element_id = str(element_data['id'])
+            logger.info(f"Found existing shopify_id element: {element_id}")
+            self.project.shopify_id_element_id = element_id
+            db.session.commit()
+            return element_id
+
+        # Element does not exist - create it
+        logger.info(f"Creating shopify_id element in project {self.project.mergado_project_id}")
+        element = self.client.create_element(
             self.project.mergado_project_id,
-            query='',  # Empty query = all products
-            name=f'{self.RULE_NAME_PREFIX} - All Products'
+            name=self.SHOPIFY_ID_ELEMENT_NAME,
+            hidden=False
         )
-        
-        query_id = query_response['id']
-        
-        # Create batch_rewriting rule
-        rule_name = f'{self.RULE_NAME_PREFIX} ({len(mappings)} products)'
-        
+
+        element_id = str(element.get('id', ''))
+        if not element_id:
+            raise APIError("create_element response did not contain an element ID")
+
+        logger.info(f"Created shopify_id element: {element_id}")
+        self.project.shopify_id_element_id = element_id
+        db.session.commit()
+        return element_id
+
+    # -------------------------------------------------------------------------
+    # Step 3: Ensure custom app rule instance exists on the project
+    # -------------------------------------------------------------------------
+
+    def ensure_app_rule(self) -> str:
+        """
+        Ensure a custom app rule instance exists on the Mergado project.
+
+        The rule is created once and its ID stored on the project. On subsequent
+        imports, the stored rule ID is reused (no duplicate rules created).
+
+        Returns:
+            Mergado rule ID string
+        """
+        if self.project.shopify_writeback_rule_id:
+            logger.info(f"Using existing writeback rule: {self.project.shopify_writeback_rule_id}")
+            return self.project.shopify_writeback_rule_id
+
+        logger.info(f"Creating writeback app rule for project {self.project.mergado_project_id}")
+
         rule = self.client.create_rule(
             project_id=self.project.mergado_project_id,
-            rule_type='batch_rewriting',
-            element_path=self.SHOPIFY_ID_ELEMENT_NAME,
-            data=batch_data,
-            queries=[{'id': query_id}],
-            name=rule_name,
-            applies=True
+            rule_type='app',
+            element_path=None,
+            data={'app_rule_type': settings.mergado_writeback_rule_type},
+            queries=[],
+            name='Shopify ID Writeback',
+            applies=True,
+            priority='1',
         )
-        
-        logger.info(f"Created batch_rewriting rule: {rule.get('id')} with {len(mappings)} mappings")
-        
-        # Mark project dirty to trigger rule application
-        self.client.mark_project_dirty(self.project.mergado_project_id)
-        logger.info(f"Marked project {self.project.mergado_project_id} dirty")
-        
-        return rule
-    
+
+        rule_id = str(rule.get('id', ''))
+        if not rule_id:
+            raise APIError("create_rule response did not contain a rule ID")
+
+        logger.info(f"Created writeback app rule: {rule_id}")
+        self.project.shopify_writeback_rule_id = rule_id
+        db.session.commit()
+        return rule_id
+
+    # -------------------------------------------------------------------------
+    # Public entry point
+    # -------------------------------------------------------------------------
+
     def writeback_from_import_job(self, import_job_id: int) -> Dict[str, Any]:
         """
-        Execute full writeback workflow from import job.
-        
+        Execute full writeback setup after an import job completes.
+
+        Steps:
+        1. Upsert SKU -> Shopify ID mappings
+        2. Ensure shopify_id element exists
+        3. Ensure custom app rule instance exists on the project
+
         Args:
-            import_job_id: Import job ID
-            
+            import_job_id: Completed import job ID
+
         Returns:
             Dict with writeback summary
         """
         logger.info(f"Starting Shopify ID writeback for import job {import_job_id}")
-        
+
         try:
-            # Collect mappings
-            mappings = self.collect_sku_mappings(import_job_id)
-            
-            if not mappings:
+            mappings_count = self.upsert_sku_mappings(import_job_id)
+
+            if mappings_count == 0:
                 return {
                     'success': True,
                     'mappings_count': 0,
-                    'message': 'No Shopify IDs to write back'
+                    'message': 'No Shopify IDs to write back',
                 }
-            
-            # Create rule
-            rule = self.create_writeback_rule(mappings)
-            
+
+            self.ensure_shopify_id_element()
+            rule_id = self.ensure_app_rule()
+
             return {
                 'success': True,
-                'mappings_count': len(mappings),
-                'rule_id': rule.get('id'),
+                'mappings_count': mappings_count,
+                'rule_id': rule_id,
                 'element_id': self.project.shopify_id_element_id,
-                'message': f'Wrote back {len(mappings)} Shopify IDs'
+                'message': f'Stored {mappings_count} Shopify ID mappings; rule {rule_id} active',
             }
-            
+
         except APIError as e:
             logger.error(f"Writeback failed: {e}")
             return {
                 'success': False,
                 'error': str(e),
-                'message': 'Writeback failed'
+                'message': 'Writeback failed',
             }

@@ -24,6 +24,8 @@ services:
         sync: false
       - key: MERGADO_REDIRECT_URI
         sync: false
+      - key: MERGADO_WRITEBACK_RULE_TYPE
+        value: apps.shopifyimportsync.shopifyidwriteback
       - key: LOG_LEVEL
         value: INFO
       - key: LOG_FORMAT

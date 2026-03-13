@@ -9,6 +9,7 @@ from app.models.import_job import ImportJob
 from app.models.import_log import ImportLog
 from app.models.sync_config import SyncConfig
 from app.models.sync_log import SyncLog
+from app.models.shopify_id_mapping import ShopifyIDMapping
 
 __all__ = [
     'Shop',
@@ -17,4 +18,5 @@ __all__ = [
     'ImportLog',
     'SyncConfig',
     'SyncLog',
+    'ShopifyIDMapping',
 ]

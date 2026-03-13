@@ -236,20 +236,21 @@ class MergadoClient:
     # ELEMENTS API
     # ============================================================================
     
-    def get_project_elements(self, project_id: str) -> List[Dict[str, Any]]:
+    def get_project_elements(self, project_id: str) -> Dict[str, Any]:
         """
         List project elements in tree structure.
-        
+
         OAuth Scope: project.elements.read
-        
+
         Args:
             project_id: Mergado project ID
-            
+
         Returns:
-            Tree of elements
+            Dict keyed by element name: {"PRICE": {"id": "2", "hidden": false, ...}, ...}
         """
+        # The API returns a dict keyed by element name, not a {data: [...]} envelope.
         response = self._request('GET', f'/projects/{project_id}/elements/')
-        return response.json().get('data', [])
+        return response.json()
     
     def create_element(
         self,
@@ -365,7 +366,7 @@ class MergadoClient:
         self,
         project_id: str,
         rule_type: str,
-        element_path: str,
+        element_path: Optional[str],
         data: Any,
         queries: List[Dict[str, str]],
         name: Optional[str] = None,
@@ -374,35 +375,38 @@ class MergadoClient:
     ) -> Dict[str, Any]:
         """
         Create a rule in a project.
-        
+
         OAuth Scope: project.rules.write
-        
+
         Args:
             project_id: Mergado project ID
-            rule_type: Rule type (e.g., 'rewriting', 'batch_rewriting')
-            element_path: Target element path
-            data: Rule-specific data (dict for rewriting, list for batch_rewriting)
-            queries: List of query dicts with 'id' field
-            name: Rule name
+            rule_type: Rule type ('rewriting', 'app', etc.)
+            element_path: Target element path; None for app rules
+            data: Rule-specific data (dict for app/rewriting rules)
+            queries: List of query dicts with 'id' field (empty list for app rules)
+            name: Rule name (max 100 chars, no special characters)
             applies: Whether rule is enabled
-            priority: Rule priority (optional)
-            
+            priority: Rule priority string; required by API (at least one of
+                      priority or placement must be supplied)
+
         Returns:
             Created rule data
         """
-        payload = {
+        payload: Dict[str, Any] = {
             'type': rule_type,
-            'element_path': element_path,
             'data': data,
-            'queries': queries,
-            'applies': applies
+            'applies': applies,
         }
-        
+
+        if element_path is not None:
+            payload['element_path'] = element_path
+        if queries:
+            payload['queries'] = queries
         if name:
             payload['name'] = name
         if priority:
             payload['priority'] = priority
-        
+
         response = self._request(
             'POST',
             f'/projects/{project_id}/rules/',

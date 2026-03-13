@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 5000
 
+    # Mergado custom app rule type for Shopify ID writeback.
+    # Set MERGADO_WRITEBACK_RULE_TYPE in env:
+    #   dev:        apps.shopifyimportsync.dev.shopifyidwriteback
+    #   production: apps.shopifyimportsync.shopifyidwriteback
+    mergado_writeback_rule_type: str = "apps.shopifyimportsync.dev.shopifyidwriteback"
+
 
     @field_validator("flask_debug", mode='before')
     @classmethod
