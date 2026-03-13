@@ -93,6 +93,9 @@ def _register_blueprints(app: Flask) -> None:
     from app.routes.rule_routes import rule_bp
     app.register_blueprint(rule_bp)
 
+    from app.routes.admin_routes import admin_bp
+    app.register_blueprint(admin_bp)
+
 
 def _init_database(app: Flask) -> None:
     """Initialize database connection and create tables."""
