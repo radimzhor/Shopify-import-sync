@@ -112,17 +112,13 @@ class MergadoClient:
                 
                 # Non-retryable error or max retries reached
                 error_detail = e.response.text if e.response else str(e)
+                status_code = e.response.status_code if e.response else None
                 logger.error(
-                    f"Mergado API error: {method} {url}",
-                    extra={
-                        'status_code': e.response.status_code if e.response else None,
-                        'response_body': error_detail,
-                        'request_url': url
-                    }
+                    f"Mergado API error: {method} {url} -> {status_code} - Response: {error_detail}"
                 )
                 raise APIError(
                     f"Mergado API error: {error_detail}",
-                    status_code=e.response.status_code if e.response else None
+                    status_code=status_code
                 )
             
             except requests.RequestException as e:
@@ -416,8 +412,7 @@ class MergadoClient:
             payload['priority'] = priority
 
         logger.info(
-            f"Creating rule in project {project_id}",
-            extra={'rule_type': rule_type, 'payload': payload}
+            f"Creating rule in project {project_id}: type={rule_type}, payload={payload}"
         )
         response = self._request(
             'POST',
