@@ -114,4 +114,103 @@ Added three endpoints:
 
 ---
 
-**Resolution time**: ~4 hours (including multiple deploy cycles and OAuth troubleshooting)
+## Session 2: Shopify ID Writeback Rule Creation Issues
+
+**Date**: March 14, 2026  
+**Issue**: Shopify ID writeback failing with Mergado API errors  
+**Status**: ✅ RESOLVED
+
+### Problem
+
+After fixing the database schema issues, the writeback operation reached the rule creation step but failed with Mergado API errors:
+1. First: `400 BAD REQUEST` with no details
+2. After adding logging: `"Rule must have at least one query"`
+3. After adding `♥ALLPRODUCTS♥` query: `"Query does not exist in the rule's project"`
+
+### Root Causes
+
+1. **Missing query in rule**: Mergado API requires every rule to have at least one query attached, but we were passing `queries=[]`
+2. **Wrong query ID approach**: The `♥ALLPRODUCTS♥` identifier is not universal - each project has its own numeric ID for the "all products" query
+
+### Hypothesis Testing (with Runtime Evidence)
+
+#### H1: Insufficient error details from Mergado API ✅ CONFIRMED
+- **Evidence**: Initial logs showed generic "BAD REQUEST" without Mergado's actual error message
+- **Fix**: Enhanced error logging to include full API response body
+- **Result**: Could see actual error: `"Rule must have at least one query"`
+
+#### H2: Rule needs at least one query ✅ CONFIRMED  
+- **Evidence**: Mergado API returned `{"message": "Rule must have at least one query."}`
+- **Initial attempt**: Used `♥ALLPRODUCTS♥` as universal query ID
+- **Result**: Failed with `"Query does not exist in the rule's project"`
+
+#### H3: All-products query ID varies per project ✅ CONFIRMED
+- **Evidence**: User confirmed the all-products query exists in every project but with different numeric IDs (e.g., `7975344`)
+- **Fix**: Added `get_queries()` method to list project queries and find the all-products query dynamically
+- **Result**: Successfully creates rules using the correct project-specific query ID
+
+### Solution Applied
+
+**Step 1: Add query listing to MergadoClient**
+```python
+def get_queries(self, project_id: str) -> List[Dict[str, Any]]:
+    """List all queries in a project."""
+    response = self._request('GET', f'/projects/{project_id}/queries/')
+    # Handle both {data: [...]} and [...] response formats
+    ...
+```
+
+**Step 2: Look up all-products query before creating rule**
+```python
+# Find the "all products" query (exists in every project by default)
+queries = self.client.get_queries(self.project.mergado_project_id)
+all_products_query_id = None
+
+for query in queries:
+    query_name = query.get('name', '').lower()
+    if 'all' in query_name and 'product' in query_name:
+        all_products_query_id = str(query.get('id'))
+        break
+
+# Create rule with the project-specific query ID
+rule = self.client.create_rule(
+    project_id=self.project.mergado_project_id,
+    rule_type='app',
+    data={'app_rule_type': settings.mergado_writeback_rule_type},
+    queries=[{'id': all_products_query_id}],  # ✅ Uses correct project-specific ID
+    ...
+)
+```
+
+**Step 3: Enhanced error logging**
+- Changed error logging to include full Mergado API response body
+- Made rule payload logging debug-level (was too verbose for production)
+
+### Verification
+
+**Before fix**:
+```json
+{"message": "Query does not exist in the rule's project."}
+```
+
+**After fix**:
+- Log shows: `"Found all-products query: 7975344"` (or similar per-project ID)
+- Rule creation succeeds
+- Shopify ID writeback completes successfully
+
+### Files Modified
+
+- `app/services/mergado_client.py` - Added `get_queries()` method, enhanced error logging
+- `app/services/shopify_id_writeback.py` - Dynamic query lookup before rule creation
+- `app/routes/admin_routes.py` - Added `/admin/create-shopify-id-mappings-table` endpoint (from Session 1 continuation)
+
+### Lessons Learned
+
+1. **Always log full API error responses**: Generic HTTP status codes aren't enough; the response body contains the actual error
+2. **Don't assume universal IDs**: Even "standard" entities like "all products" queries have project-specific IDs
+3. **Query the API for dynamic data**: When IDs vary per project, look them up rather than hardcoding
+4. **Use debug-level for verbose logging**: Detailed payloads are useful for debugging but too verbose for production INFO logs
+
+---
+
+**Total resolution time**: ~6 hours (across two sessions, including DB schema fixes and OAuth setup)
