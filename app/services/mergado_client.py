@@ -437,7 +437,7 @@ class MergadoClient:
         if priority:
             payload['priority'] = priority
 
-        logger.info(
+        logger.debug(
             f"Creating rule in project {project_id}: type={rule_type}, payload={payload}"
         )
         response = self._request(
