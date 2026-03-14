@@ -178,12 +178,25 @@ class ShopifyIDWriteback:
 
         logger.info(f"Creating writeback app rule for project {self.project.mergado_project_id}")
 
+        # Create a query that matches all products (required by Mergado API)
+        match_all_query = self.client.create_query(
+            project_id=self.project.mergado_project_id,
+            query='1 = 1',  # Always true - matches all products
+            name='Match All Products'
+        )
+        query_id = str(match_all_query.get('id', ''))
+        if not query_id:
+            raise APIError("create_query response did not contain a query ID")
+
+        logger.info(f"Created match-all query: {query_id}")
+
+        # Create the app rule with the query
         rule = self.client.create_rule(
             project_id=self.project.mergado_project_id,
             rule_type='app',
             element_path=None,
             data={'app_rule_type': settings.mergado_writeback_rule_type},
-            queries=[],
+            queries=[{'id': query_id}],
             name='Shopify ID Writeback',
             applies=True,
             priority='1',
