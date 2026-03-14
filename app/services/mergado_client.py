@@ -111,11 +111,18 @@ class MergadoClient:
                         continue
                 
                 # Non-retryable error or max retries reached
-                error_detail = e.response.text if e.response else str(e)
-                status_code = e.response.status_code if e.response else None
-                logger.error(
-                    f"Mergado API error: {method} {url} -> {status_code} - Response: {error_detail}"
-                )
+                if e.response is not None:
+                    status_code = e.response.status_code
+                    error_detail = e.response.text
+                    logger.error(
+                        f"Mergado API {status_code} error for {method} {url}: {error_detail}"
+                    )
+                else:
+                    status_code = None
+                    error_detail = str(e)
+                    logger.error(
+                        f"Mergado API error for {method} {url}: {error_detail}"
+                    )
                 raise APIError(
                     f"Mergado API error: {error_detail}",
                     status_code=status_code
