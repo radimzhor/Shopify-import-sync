@@ -343,6 +343,25 @@ class MergadoClient:
     # RULES & QUERIES API
     # ============================================================================
     
+    def get_queries(self, project_id: str) -> List[Dict[str, Any]]:
+        """
+        List all queries (product filters) in a project.
+        
+        OAuth Scope: project.queries.read
+        
+        Args:
+            project_id: Mergado project ID
+            
+        Returns:
+            List of query dicts with id, name, query fields
+        """
+        response = self._request('GET', f'/projects/{project_id}/queries/')
+        data = response.json()
+        # API might return {data: [...]} or just [...]
+        if isinstance(data, dict) and 'data' in data:
+            return data['data']
+        return data if isinstance(data, list) else []
+    
     def create_query(
         self,
         project_id: str,
