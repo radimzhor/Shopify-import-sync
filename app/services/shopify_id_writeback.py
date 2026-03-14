@@ -254,6 +254,11 @@ class ShopifyIDWriteback:
             self.ensure_shopify_id_element()
             rule_id = self.ensure_app_rule()
 
+            logger.info(
+                f"Writeback completed successfully for job {import_job_id}: "
+                f"{mappings_count} mappings, rule {rule_id}"
+            )
+
             return {
                 'success': True,
                 'mappings_count': mappings_count,
