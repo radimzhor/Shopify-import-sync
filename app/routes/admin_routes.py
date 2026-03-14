@@ -121,3 +121,57 @@ def add_column_directly():
             'status': 'error',
             'error': str(e)
         }), 500
+
+
+@admin_bp.route('/create-shopify-id-mappings-table', methods=['POST'])
+def create_shopify_id_mappings_table():
+    """
+    Emergency fix: directly create the shopify_id_mappings table using raw SQL.
+    This bypasses Alembic and should only be used if migrations are failing.
+    """
+    try:
+        from sqlalchemy import text
+        
+        with db.engine.connect() as conn:
+            # Create table if not exists
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS shopify_id_mappings (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL,
+                    sku VARCHAR(200) NOT NULL,
+                    shopify_product_id VARCHAR(50) NOT NULL,
+                    shopify_variant_id VARCHAR(50),
+                    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_shopify_id_mappings_project_id 
+                        FOREIGN KEY (project_id) REFERENCES projects(id),
+                    CONSTRAINT uq_shopify_id_mapping_project_sku 
+                        UNIQUE (project_id, sku)
+                )
+            """))
+            
+            # Create indexes if they don't exist
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_shopify_id_mappings_project_id 
+                ON shopify_id_mappings(project_id)
+            """))
+            
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_shopify_id_mappings_sku 
+                ON shopify_id_mappings(sku)
+            """))
+            
+            conn.commit()
+        
+        logger.info("Successfully created shopify_id_mappings table")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Table created successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to create table: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
