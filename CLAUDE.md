@@ -134,6 +134,7 @@ docker run -p 5000:5000 --env-file .env shopify-connector
 - **Database Changes**: See `.claude/skills/database-migration.md`
 - **Testing**: See `.claude/skills/testing-workflow.md`
 - **Deployment**: See `.claude/skills/deployment.md`
+- **Mergado Custom App Rules**: See `.claude/skills/mergado-custom-rule.md`
 
 ## Architecture Decision Records
 

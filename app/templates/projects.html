@@ -10,20 +10,6 @@
         </div>
     </div>
 
-    <!-- Shop Selection -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <label for="shop-select" class="form-label">Mergado Shop</label>
-            <input type="text" id="shop-id-input" class="form-control" placeholder="Enter Mergado Shop ID">
-            <small class="form-text text-muted">You can find your Shop ID in Mergado app URL</small>
-        </div>
-        <div class="col-md-6 d-flex align-items-end">
-            <button id="load-projects-btn" class="btn btn-primary" onclick="loadProjects()">
-                <i class="fas fa-search"></i> Load Projects
-            </button>
-        </div>
-    </div>
-
     <!-- Projects List -->
     <div id="projects-loading" style="display: none;">
         <div class="text-center py-5">
@@ -39,7 +25,7 @@
 
     <div id="projects-empty" style="display: none;">
         <div class="alert alert-info">
-            <i class="fas fa-info-circle"></i> No projects found. Enter your Shop ID and click "Load Projects".
+            <i class="fas fa-info-circle"></i> No projects found for this shop.
         </div>
     </div>
 </div>
@@ -50,10 +36,17 @@
     let currentShopId = null;
 
     async function loadProjects() {
-        const shopId = document.getElementById('shop-id-input').value.trim();
+        // Read shop ID from localStorage (set during OAuth)
+        const shopId = localStorage.getItem('mergado_entity_id');
         
         if (!shopId) {
-            alert('Please enter a Shop ID');
+            // User not authenticated - redirect to login
+            document.getElementById('projects-empty').innerHTML = 
+                '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Please log in to continue.</div>';
+            document.getElementById('projects-empty').style.display = 'block';
+            setTimeout(() => {
+                window.location.href = '/auth/login';
+            }, 2000);
             return;
         }
         
@@ -128,5 +121,10 @@
         div.textContent = text;
         return div.innerHTML;
     }
+    
+    // Auto-load projects when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadProjects();
+    });
 </script>
 {% endblock %}

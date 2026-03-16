@@ -71,7 +71,7 @@ def get_shop_projects(shop_id: str):
         raise BadRequest("Access token required")
     
     mergado_client = MergadoClient(access_token)
-    
+
     try:
         # Fetch projects from Mergado API
         projects = mergado_client.get_projects(shop_id)
@@ -134,16 +134,14 @@ def get_shop_projects(shop_id: str):
                 project.output_url = output_url
                 project.output_format = project_details.get('output_format', 'shopify_csv')
 
-        
+
         db.session.commit()
-        
+
         # Return projects from database
         db_projects = Project.query.join(Shop).filter(Shop.mergado_shop_id == shop_id).all()
-        
-        return jsonify({
-            'projects': [p.to_dict() for p in db_projects]
-        })
-        
+
+        return jsonify({'projects': [p.to_dict() for p in db_projects]})
+
     except Exception as e:
         logger.error(f"Failed to fetch projects: {e}")
         return jsonify({'error': str(e)}), 500
