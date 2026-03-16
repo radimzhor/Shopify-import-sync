@@ -23,7 +23,10 @@ def _extract_sku(product: dict) -> Optional[str]:
     """
     Extract SKU from a Mergado product payload.
 
-    Checks multiple common SKU field names: CODE, ITEM_ID, SKU.
+    Since the rule is configured in Mergado Developer Portal to send only the
+    identifier element (whatever its name: CODE, ITEM_ID, SKU, etc.), we extract
+    the first non-empty element value we find.
+
     Supports both API versions:
     - v2022-09-10+: data.elements.{field}[0].value  (nested structure)
     - pre-2022-09-10: data.{field}                  (flat key-value)
@@ -32,20 +35,20 @@ def _extract_sku(product: dict) -> Optional[str]:
 
     # New format (version >= 2022-09-10): nested elements dict
     elements = data.get('elements')
-    if elements:
-        # Try common SKU field names in order of preference
-        for field_name in ['CODE', 'ITEM_ID', 'SKU']:
-            field_list = elements.get(field_name, [])
-            if field_list and isinstance(field_list, list) and len(field_list) > 0:
-                value = field_list[0].get('value')
+    if elements and isinstance(elements, dict):
+        # Iterate through all elements and return the first non-empty value
+        # Mergado sends only the identifier element, so there should be exactly one
+        for element_name, element_list in elements.items():
+            if element_list and isinstance(element_list, list) and len(element_list) > 0:
+                value = element_list[0].get('value')
                 if value:
-                    return value
+                    return str(value)
 
-    # Old flat format - try the same field names
+    # Old flat format - check common field names as fallback
     for field_name in ['CODE', 'ITEM_ID', 'SKU']:
         value = data.get(field_name)
         if value:
-            return value
+            return str(value)
     
     return None
 
