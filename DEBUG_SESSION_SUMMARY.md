@@ -213,4 +213,72 @@ rule = self.client.create_rule(
 
 ---
 
-**Total resolution time**: ~6 hours (across two sessions, including DB schema fixes and OAuth setup)
+## Session 3: Custom App Rule Registration & Application
+
+**Date**: March 14, 2026 (continued)  
+**Issue**: Custom app rule created but not applying (stuck at 0%)  
+**Status**: ✅ RESOLVED
+
+### Problem
+
+After successfully creating the Shopify ID writeback rule in Mergado:
+1. Rule was created with correct query and rule type
+2. But when triggering "Apply rules" in Mergado, it stuck at 0% and never progressed
+3. UI showed "Stored 12 Shopify ID mappings; rule 3638498 active" but no shopify_id values appeared in the feed
+
+### Root Causes
+
+1. **Wrong hostname in rule registration**: The custom app rule callback URL was registered with the wrong Render hostname
+2. **Stale rule ID in database**: When user deleted a rule in Mergado, the app still referenced the old ID
+
+### Solutions Applied
+
+**Issue 1: Hostname mismatch**
+- **Problem**: Developer portal had `https://mergado-shopify-connector.onrender.com/...` but actual service was `https://shopify-import-and-sync.onrender.com/...`
+- **Fix**: Updated rule registration URLs in Mergado Developer Portal to use correct hostname
+
+**Issue 2: Stale rule IDs**
+- **Problem**: Code checked `projects.shopify_writeback_rule_id` in DB but didn't verify the rule existed in Mergado
+- **Fix**: Added `get_rule()` method and rule existence verification:
+
+```python
+# Check if stored rule still exists in Mergado
+if self.project.shopify_writeback_rule_id:
+    existing_rule = self.client.get_rule(
+        self.project.mergado_project_id,
+        self.project.shopify_writeback_rule_id
+    )
+    if existing_rule:
+        return self.project.shopify_writeback_rule_id  # Reuse
+    else:
+        logger.warning("Stored rule no longer exists, creating new one")
+        self.project.shopify_writeback_rule_id = None  # Create new
+```
+
+### Verification
+
+**Before fix**:
+- Rule application stuck at 0%
+- No callbacks received at `/api/rules/shopify-id-writeback`
+- Render logs showed no "Writeback rule called" messages
+
+**After fix**:
+- Rule application progresses from 0% to 100%
+- Render logs show: `"Writeback rule called: project=349614 products=12 ..."`
+- `shopify_id` element appears in Mergado feed with correct values
+
+### Files Modified
+
+- `app/services/mergado_client.py` - Added `get_rule()` method
+- `app/services/shopify_id_writeback.py` - Added rule existence check, completion logging
+
+### Lessons Learned
+
+1. **Custom app rules need proper registration**: The callback URL must be registered in Mergado Developer Portal with correct hostname
+2. **Verify external state**: Don't assume database state matches external API state (rules can be deleted)
+3. **Hostname consistency**: Ensure all configuration (OAuth redirect URIs, rule callbacks) uses the same hostname
+4. **Server-to-server callbacks**: Custom app rules are called by Mergado server-to-server during rule application
+
+---
+
+**Total resolution time**: ~8 hours (across three sessions, including DB schema, rule creation, and callback setup)
