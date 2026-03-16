@@ -293,6 +293,82 @@
 
 ---
 
+## Phase 7: Data Integrity & Auto-Writeback ✅ COMPLETE
+
+**Status**: ✅ Complete  
+**Date**: 2026-03-16
+
+### 7a: Stale Mapping Detection & Cleanup
+
+**Problem**: When products are manually deleted in Shopify (outside the app), the `shopify_id_mappings` table retained old IDs, causing sync operations to fail silently or write incorrect IDs to Mergado.
+
+**Solution**: Implemented automatic stale mapping detection with audit trail logging.
+
+1. **Database Migration** (`migrations/versions/5faab9b23ecc_*.py`):
+   - Added `last_synced_at` timestamp column to `shopify_id_mappings` table
+   - Indexed for efficient staleness queries
+   - Applied via emergency admin endpoint due to migration chain issues
+
+2. **Stale Detection in Sync Services** (`app/services/price_sync.py`, `app/services/stock_sync.py`):
+   - Catches 404 errors when Shopify product no longer exists
+   - Logs detailed audit trail before deletion (project, SKU, IDs, timestamps, reason)
+   - Automatically removes stale mappings from database
+   - Updates `last_synced_at` on successful sync operations
+   - Gracefully continues processing other products
+
+3. **Emergency Admin Endpoints** (`app/routes/admin_routes.py`):
+   - `POST /admin/add-last-synced-at-column` - Manual schema fix for production
+   - `GET /admin/db-status` - Database and migration status checking
+
+### 7b: Automatic ID Writeback
+
+**Problem**: Users needed to manually click "Write back IDs" button after import, which was:
+- Not intuitive
+- Easy to forget
+- Caused data integrity issues when skipped
+
+**Solution**: Automatic writeback in background thread after import completes.
+
+1. **Auto-Writeback Implementation** (`app/routes/import_routes.py`):
+   - Runs automatically after successful import (status=COMPLETED, success_count > 0)
+   - Executes in same background thread as import
+   - Gracefully handles errors without failing the import job
+   - Detailed logging of writeback success/failure
+   - No user action required
+
+2. **UI Simplification** (`app/templates/import_wizard.html`):
+   - Removed manual "Write Back IDs" button (Step 3)
+   - Removed `startWriteback()` JavaScript function
+   - Updated completion message to inform users IDs are automatically synced
+   - Simplified workflow from 3 steps to 2 steps
+
+3. **Writeback Endpoint Preserved** (`/api/import/writeback/<job_id>`):
+   - Still exists for manual triggering if needed
+   - Can be called via API for troubleshooting
+   - Not exposed in UI
+
+### 7c: Architecture Documentation Update
+
+**Corrected ADR-001**: Initial documentation incorrectly described using `batch_rewriting` rule type. After production testing, confirmed that **custom app rule** (`type='app'`) is the correct implementation:
+
+- Uses Mergado's custom app rule system
+- Webhook-based: Mergado calls our endpoint during rule application
+- Single rule handles all products (scalable)
+- IDs stored in `shopify_id_mappings` table for fast lookup
+- Format: `product_id:variant_id` (e.g., "9876543210:1234567890")
+
+**Note**: ADR-001 needs to be rewritten to reflect custom app rule approach (not batch_rewriting).
+
+### Benefits
+
+✅ **Self-healing system**: Stale mappings automatically cleaned up during normal operations  
+✅ **Better UX**: No manual writeback button to forget  
+✅ **Data integrity**: Always syncs latest IDs from imports  
+✅ **Audit trail**: Full logging of what was deleted and why  
+✅ **Production-tested**: Verified with real Shopify store and Mergado project  
+
+---
+
 ## Summary
 
 **Status**: 🎉 **MVP COMPLETE - Production Ready!**
@@ -305,6 +381,7 @@
 ✅ Phase 4: Stock & price synchronization  
 ✅ Phase 5: Complete UI with MUS components  
 ✅ Phase 6: Production hardening & deployment  
+✅ Phase 7: Data integrity & automatic ID writeback  
 
 ### Core Features Implemented:
 
@@ -326,14 +403,17 @@
    - SKU-based product matching
    - Create/update decision logic
    - Real-time progress tracking (SSE)
-   - Shopify ID writeback to Mergado
+   - **Automatic** Shopify ID writeback to Mergado (no manual button)
    - Persistent import logs with CSV export
+   - Stale mapping detection and cleanup
 
 4. **Automatic Sync**:
    - Configurable stock synchronization
    - Configurable price synchronization
    - Manual and scheduled execution
    - Sync history and logging
+   - Automatic cleanup of stale product mappings (404 detection)
+   - Audit trail for deleted mappings
 
 5. **User Interface**:
    - Dashboard with statistics
