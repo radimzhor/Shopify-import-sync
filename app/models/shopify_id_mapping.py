@@ -49,7 +49,9 @@ class ShopifyIDMapping(db.Model):
     @property
     def combined_id(self) -> str:
         """Return the combined shopify_id value written into the Mergado element."""
-        return f"{self.shopify_product_id}:{self.shopify_variant_id or ''}"
+        if self.shopify_variant_id:
+            return f"{self.shopify_product_id}:{self.shopify_variant_id}"
+        return self.shopify_product_id
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON responses."""
