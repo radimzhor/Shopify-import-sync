@@ -172,9 +172,22 @@ class ShopifyIDWriteback:
         Returns:
             Mergado rule ID string
         """
+        # Check if we have a stored rule ID
         if self.project.shopify_writeback_rule_id:
-            logger.info(f"Using existing writeback rule: {self.project.shopify_writeback_rule_id}")
-            return self.project.shopify_writeback_rule_id
+            # Verify the rule still exists in Mergado (user may have deleted it)
+            existing_rule = self.client.get_rule(
+                self.project.mergado_project_id,
+                self.project.shopify_writeback_rule_id
+            )
+            if existing_rule:
+                logger.info(f"Using existing writeback rule: {self.project.shopify_writeback_rule_id}")
+                return self.project.shopify_writeback_rule_id
+            else:
+                logger.warning(
+                    f"Stored rule {self.project.shopify_writeback_rule_id} no longer exists in Mergado, "
+                    f"will create a new one"
+                )
+                self.project.shopify_writeback_rule_id = None
 
         logger.info(f"Creating writeback app rule for project {self.project.mergado_project_id}")
 

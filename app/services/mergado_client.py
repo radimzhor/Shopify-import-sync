@@ -447,6 +447,27 @@ class MergadoClient:
         )
         return response.json()
     
+    def get_rule(self, project_id: str, rule_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific rule by ID.
+        
+        OAuth Scope: project.rules.read
+        
+        Args:
+            project_id: Mergado project ID
+            rule_id: Rule ID
+            
+        Returns:
+            Rule data, or None if not found
+        """
+        try:
+            response = self._request('GET', f'/projects/{project_id}/rules/{rule_id}/')
+            return response.json()
+        except APIError as e:
+            if e.status_code == 404:
+                return None
+            raise
+    
     def mark_project_dirty(self, project_id: str) -> Dict[str, Any]:
         """
         Mark project as dirty to trigger rule application.
