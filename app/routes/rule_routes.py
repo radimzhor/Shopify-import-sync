@@ -108,6 +108,8 @@ def shopify_id_writeback():
         if sku:
             product_sku_index[product['id']] = sku
             skus_in_batch.append(sku)
+        else:
+            logger.debug(f"No SKU extracted from product {product.get('id')}: {product.get('data', {})}")
 
     # Single query for all SKUs in this batch
     if skus_in_batch:
@@ -118,9 +120,16 @@ def shopify_id_writeback():
         sku_map = {m.sku: m.combined_id for m in mappings}
 
     logger.info(
-        f"Writeback rule: found {len(sku_map)}/{len(skus_in_batch)} mappings "
-        f"for project {mergado_project_id}"
+        f"Writeback rule: extracted {len(skus_in_batch)} SKUs from {len(products)} products, "
+        f"found {len(sku_map)} mappings for project {mergado_project_id}"
     )
+    
+    if len(skus_in_batch) == 0 and len(products) > 0:
+        # Log first product to see structure
+        logger.warning(
+            f"No SKUs extracted from {len(products)} products. "
+            f"First product structure: {products[0] if products else 'none'}"
+        )
 
     # Build response — only include products that have a mapping
     result = []
