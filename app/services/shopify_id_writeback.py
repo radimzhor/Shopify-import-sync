@@ -70,6 +70,15 @@ class ShopifyIDWriteback:
             ImportLog.shopify_product_id.isnot(None)
         ).all()
 
+        # region agent log
+        import json
+        try:
+            log_data = [{'sku':log.product_identifier,'product_id':log.shopify_product_id,'variant_id':log.shopify_variant_id} for log in logs[:5]]
+            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
+                f.write(json.dumps({'sessionId':'762cb9','location':'shopify_id_writeback.py:66','message':'ImportLog entries for writeback','data':{'job_id':import_job_id,'total_logs':len(logs),'sample':log_data},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'B,C'}) + '\n')
+        except: pass
+        # endregion
+
         if not logs:
             logger.info(f"No successful import logs with Shopify IDs for job {import_job_id}")
             return 0
@@ -109,6 +118,16 @@ class ShopifyIDWriteback:
 
         db.session.execute(stmt)
         db.session.commit()
+        
+        # region agent log
+        import json
+        try:
+            sample_rows = rows[:5]
+            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
+                f.write(json.dumps({'sessionId':'762cb9','location':'shopify_id_writeback.py:110','message':'Upserted mappings to database','data':{'project_id':self.project.id,'mergado_project_id':self.project.mergado_project_id,'total_rows':len(rows),'sample':sample_rows},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'D'}) + '\n')
+        except: pass
+        # endregion
+        
         logger.info(f"Upserted {len(rows)} SKU mappings for project {self.project.mergado_project_id}")
         return len(rows)
 

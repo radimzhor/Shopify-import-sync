@@ -235,6 +235,17 @@ class ProductImporter:
                     else:
                         result = self._update_product(match)
 
+                    # region agent log
+                    import json
+                    product_id = result.get('product', {}).get('id')
+                    variants = result.get('product', {}).get('variants', [])
+                    variant_ids = [str(v.get('id')) for v in variants]
+                    try:
+                        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
+                            f.write(json.dumps({'sessionId':'762cb9','location':'product_importer.py:238','message':'Import success - captured IDs','data':{'sku':match.primary_sku,'shopify_product_id':str(product_id),'variant_ids':variant_ids,'variants_count':len(variants)},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'B,C'}) + '\n')
+                    except: pass
+                    # endregion
+                    
                     self._log_product_result(
                         product_identifier=match.primary_sku or match.csv_product.handle,
                         status=ImportLogStatus.SUCCESS,

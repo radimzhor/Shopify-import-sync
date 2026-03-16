@@ -129,6 +129,15 @@ def shopify_id_writeback():
             ShopifyIDMapping.sku.in_(skus_in_batch)
         ).all()
         sku_map = {m.sku: m.combined_id for m in mappings}
+        
+        # region agent log
+        import json
+        try:
+            mapping_data = [{'sku':m.sku,'product_id':m.shopify_product_id,'variant_id':m.shopify_variant_id,'combined':m.combined_id,'updated_at':str(m.updated_at)} for m in mappings[:5]]
+            with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
+                f.write(json.dumps({'sessionId':'762cb9','location':'rule_routes.py:126','message':'Mappings read for rule application','data':{'project_id':project.id,'mergado_project_id':mergado_project_id,'total_mappings':len(mappings),'sample':mapping_data,'skus_requested':skus_in_batch[:5]},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'E'}) + '\n')
+        except: pass
+        # endregion
 
     logger.info(
         f"Writeback rule: extracted {len(skus_in_batch)} SKUs from {len(products)} products, "
