@@ -281,4 +281,36 @@ if self.project.shopify_writeback_rule_id:
 
 ---
 
+## Session Completion (2026-03-13)
+
+### Instrumentation Cleanup
+
+All temporary debug logging has been removed:
+- ✅ Removed SKU extraction debug logs in `rule_routes.py`
+- ✅ Removed product structure warning logs in `rule_routes.py`
+- ✅ Kept production-appropriate INFO/WARNING level logging for troubleshooting
+
+### Permanent Logging Retained
+
+The following production-appropriate logs remain:
+- `mergado_client.py`: Enhanced API error logging with full response bodies
+- `shopify_id_writeback.py`: Completion logging confirming successful writeback
+- `rule_routes.py`: INFO logging for writeback rule invocations
+
+### Final Status
+
+**✅ System fully operational**:
+- Projects load correctly
+- Products import to Shopify
+- Shopify IDs write back to Mergado
+- Custom app rules create and apply successfully
+- `shopify_id` values are correctly formatted
+
+**Code quality**:
+- No temporary debug code remaining
+- All logging at appropriate levels (INFO, WARNING, ERROR)
+- Ready for production use
+
+---
+
 **Total resolution time**: ~8 hours (across three sessions, including DB schema, rule creation, and callback setup)
