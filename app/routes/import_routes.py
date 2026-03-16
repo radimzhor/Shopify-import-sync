@@ -81,14 +81,6 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
                 f"{import_job.skipped_count} skipped"
             )
 
-            # region agent log
-            import json
-            try:
-                with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
-                    f.write(json.dumps({'sessionId':'762cb9','location':'import_routes.py:77','message':'Import completed, starting auto-writeback','data':{'job_id':job_id,'status':import_job.status,'success_count':import_job.success_count},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'AUTO_WRITEBACK'}) + '\n')
-            except: pass
-            # endregion
-
             # Automatically write back Shopify IDs to Mergado after successful import
             try:
                 if import_job.status == ImportStatus.COMPLETED.value and import_job.success_count > 0:
@@ -96,13 +88,6 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
                     
                     writeback_service = ShopifyIDWriteback(mergado_client, project)
                     writeback_result = writeback_service.writeback_from_import_job(job_id)
-                    
-                    # region agent log
-                    try:
-                        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
-                            f.write(json.dumps({'sessionId':'762cb9','location':'import_routes.py:98','message':'Auto-writeback completed','data':{'job_id':job_id,'writeback_result':writeback_result},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'AUTO_WRITEBACK'}) + '\n')
-                    except: pass
-                    # endregion
                     
                     if writeback_result.get('success'):
                         logger.info(
@@ -122,13 +107,6 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
             except Exception as wb_error:
                 # Log writeback error but don't fail the import job
                 logger.error(f"[BG] Job {job_id}: Auto-writeback error: {wb_error}", exc_info=True)
-                
-                # region agent log
-                try:
-                    with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
-                        f.write(json.dumps({'sessionId':'762cb9','location':'import_routes.py:118','message':'Auto-writeback failed with exception','data':{'job_id':job_id,'error':str(wb_error),'error_type':type(wb_error).__name__},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'AUTO_WRITEBACK'}) + '\n')
-                except: pass
-                # endregion
 
         except Exception as e:
             logger.error(f"[BG] Job {job_id} failed: {e}", exc_info=True)
