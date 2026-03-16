@@ -74,14 +74,6 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
             del matches
             gc.collect()
 
-            # region agent log
-            import json
-            try:
-                with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
-                    f.write(json.dumps({'sessionId':'762cb9','location':'import_routes.py:77','message':'Import job completed','data':{'job_id':job_id,'success_count':import_job.success_count,'failed_count':import_job.failed_count,'project_id':import_job.project_id},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'A,B'}) + '\n')
-            except: pass
-            # endregion
-            
             logger.info(
                 f"[BG] Job {job_id} done: "
                 f"{import_job.success_count} success, "
@@ -322,14 +314,6 @@ def writeback_shopify_ids(job_id: int):
     Returns:
         Writeback result summary
     """
-    # region agent log
-    import json
-    try:
-        with open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-762cb9.log', 'a') as f:
-            f.write(json.dumps({'sessionId':'762cb9','location':'import_routes.py:305','message':'Writeback endpoint called','data':{'job_id':job_id},'timestamp':int(__import__('time').time()*1000),'hypothesisId':'A'}) + '\n')
-    except: pass
-    # endregion
-    
     # Verify job exists and is completed
     import_job = ImportJob.query.get_or_404(job_id)
     
