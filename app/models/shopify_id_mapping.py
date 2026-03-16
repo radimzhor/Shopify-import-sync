@@ -20,6 +20,7 @@ class ShopifyIDMapping(db.Model):
         shopify_product_id: Shopify product ID
         shopify_variant_id: Shopify variant ID
         updated_at: Last time this mapping was updated (tracks freshness)
+        last_synced_at: Last time this mapping was verified during a sync operation
         project: Related project (many-to-one)
     """
     __tablename__ = 'shopify_id_mappings'
@@ -32,6 +33,7 @@ class ShopifyIDMapping(db.Model):
     updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
+    last_synced_at = db.Column(db.DateTime, nullable=True, index=True)
 
     __table_args__ = (
         db.UniqueConstraint('project_id', 'sku', name='uq_shopify_id_mapping_project_sku'),
@@ -63,4 +65,5 @@ class ShopifyIDMapping(db.Model):
             'shopify_variant_id': self.shopify_variant_id,
             'combined_id': self.combined_id,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'last_synced_at': self.last_synced_at.isoformat() if self.last_synced_at else None,
         }

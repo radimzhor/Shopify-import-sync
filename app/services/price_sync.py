@@ -10,6 +10,7 @@ from datetime import datetime
 from app import db
 from app.models.sync_config import SyncConfig, SyncType
 from app.models.sync_log import SyncLog, SyncStatus
+from app.models.shopify_id_mapping import ShopifyIDMapping
 from app.services.mergado_client import MergadoClient
 from app.services.shopify_service import ShopifyService
 from app.services.exceptions import APIError
@@ -52,6 +53,62 @@ class PriceSyncService:
         self.shopify = shopify_service
         self.sync_config = sync_config
     
+    def _handle_stale_mapping(self, project_id: int, sku: str, shopify_id: str) -> None:
+        """
+        Handle stale mapping when product is not found in Shopify (404).
+        
+        Logs the deletion for audit trail and removes the mapping from database.
+        
+        Args:
+            project_id: Internal project ID
+            sku: Product SKU
+            shopify_id: Shopify product ID that no longer exists
+        """
+        # Look up the mapping
+        mapping = ShopifyIDMapping.query.filter_by(
+            project_id=project_id,
+            sku=sku
+        ).first()
+        
+        if mapping:
+            # Audit log before deletion
+            logger.warning(
+                f"[AUDIT] Deleting stale mapping: project={project_id}, sku={sku}, "
+                f"shopify_product_id={mapping.shopify_product_id}, "
+                f"shopify_variant_id={mapping.shopify_variant_id}, "
+                f"last_updated={mapping.updated_at}, last_synced={mapping.last_synced_at}. "
+                f"Reason: Product {shopify_id} returned 404 from Shopify API."
+            )
+            
+            # Delete the stale mapping
+            db.session.delete(mapping)
+            db.session.commit()
+            
+            logger.info(f"Removed stale mapping for SKU {sku} (product {shopify_id} not found)")
+        else:
+            # Mapping not in our database, but was in Mergado feed
+            logger.warning(
+                f"Product {shopify_id} for SKU {sku} not found in Shopify, "
+                f"but no mapping exists in local database"
+            )
+    
+    def _mark_mapping_synced(self, project_id: int, sku: str) -> None:
+        """
+        Update last_synced_at timestamp for a successful sync.
+        
+        Args:
+            project_id: Internal project ID
+            sku: Product SKU
+        """
+        mapping = ShopifyIDMapping.query.filter_by(
+            project_id=project_id,
+            sku=sku
+        ).first()
+        
+        if mapping:
+            mapping.last_synced_at = datetime.utcnow()
+            db.session.commit()
+    
     def sync_prices(self) -> Dict[str, Any]:
         """
         Execute price synchronization.
@@ -92,6 +149,7 @@ class PriceSyncService:
             errors = []
             
             for product in products:
+                sku = None
                 try:
                     # Extract values
                     sku = product.get('values', {}).get(self.SKU_ELEMENT)
@@ -110,7 +168,16 @@ class PriceSyncService:
                         continue
                     
                     # Get Shopify product to find variant
-                    shopify_product = self.shopify.get_product(shopify_id)
+                    try:
+                        shopify_product = self.shopify.get_product(shopify_id)
+                    except APIError as e:
+                        # Handle 404 - product was deleted in Shopify
+                        if e.status_code == 404:
+                            self._handle_stale_mapping(project.id, sku, shopify_id)
+                            items_failed += 1
+                            continue
+                        # Re-raise other errors
+                        raise
                     
                     # Find variant by SKU
                     variant = None
@@ -135,6 +202,9 @@ class PriceSyncService:
                             }
                         }
                     )
+                    
+                    # Mark mapping as synced (update last_synced_at)
+                    self._mark_mapping_synced(project.id, sku)
                     
                     items_synced += 1
                     logger.debug(f"Updated price for SKU {sku}: {price_value:.2f}")
