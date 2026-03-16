@@ -21,23 +21,33 @@ rule_bp = Blueprint('rules', __name__, url_prefix='/api/rules')
 
 def _extract_sku(product: dict) -> Optional[str]:
     """
-    Extract ITEM_ID (SKU) from a Mergado product payload.
+    Extract SKU from a Mergado product payload.
 
+    Checks multiple common SKU field names: CODE, ITEM_ID, SKU.
     Supports both API versions:
-    - v2022-09-10+: data.elements.ITEM_ID[0].value  (nested structure)
-    - pre-2022-09-10: data.ITEM_ID                  (flat key-value)
+    - v2022-09-10+: data.elements.{field}[0].value  (nested structure)
+    - pre-2022-09-10: data.{field}                  (flat key-value)
     """
     data = product.get('data', {})
 
     # New format (version >= 2022-09-10): nested elements dict
     elements = data.get('elements')
     if elements:
-        item_id_list = elements.get('ITEM_ID', [])
-        if item_id_list and isinstance(item_id_list, list):
-            return item_id_list[0].get('value')
+        # Try common SKU field names in order of preference
+        for field_name in ['CODE', 'ITEM_ID', 'SKU']:
+            field_list = elements.get(field_name, [])
+            if field_list and isinstance(field_list, list) and len(field_list) > 0:
+                value = field_list[0].get('value')
+                if value:
+                    return value
 
-    # Old flat format
-    return data.get('ITEM_ID') or None
+    # Old flat format - try the same field names
+    for field_name in ['CODE', 'ITEM_ID', 'SKU']:
+        value = data.get(field_name)
+        if value:
+            return value
+    
+    return None
 
 
 @rule_bp.route('/shopify-id-writeback', methods=['POST'])
