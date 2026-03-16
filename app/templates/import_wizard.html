@@ -102,28 +102,6 @@
         </div>
     </div>
 
-    <!-- Step 3: Writeback -->
-    <div id="step-writeback" class="card mb-4" style="display: none;">
-        <div class="card-header">
-            <h5><i class="fas fa-arrow-left"></i> Step 3: Write Shopify IDs Back to Mergado</h5>
-        </div>
-        <div class="card-body">
-            <p>Write the Shopify product IDs back to your Mergado project for future syncs.</p>
-            
-            <button id="writeback-btn" class="btn btn-primary" onclick="startWriteback()">
-                <i class="fas fa-sync"></i> Write Back IDs
-            </button>
-            
-            <div id="writeback-loading" style="display: none;" class="text-center py-4">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="text-muted mt-2">Writing back Shopify IDs...</p>
-            </div>
-            
-            <div id="writeback-result" style="display: none;" class="mt-3">
-            </div>
-        </div>
-    </div>
-
     <!-- Completion -->
     <div id="step-complete" class="card mb-4" style="display: none;">
         <div class="card-header bg-success text-white">
@@ -131,6 +109,10 @@
         </div>
         <div class="card-body">
             <p>Your products have been successfully imported to Shopify.</p>
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> 
+                <strong>Shopify IDs automatically synced:</strong> Product IDs have been written back to your Mergado project for future price and stock syncs.
+            </div>
             <div class="d-flex gap-2">
                 <button class="btn btn-primary" onclick="navigateTo('/import/logs')">
                     <i class="fas fa-list"></i> View Detailed Logs
@@ -262,7 +244,7 @@
 
                 if (data.status === 'completed') {
                     updateProgress({ percent: 100 });
-                    showWritebackStep();
+                    showCompletionStep();
                     return;
                 }
                 if (data.status === 'failed') {
@@ -288,59 +270,14 @@
         if (data.skipped !== undefined) document.getElementById('progress-skipped').textContent = data.skipped;
     }
 
-    function showWritebackStep() {
+    function showCompletionStep() {
         document.getElementById('step-import').querySelector('.card-header').innerHTML = 
             '<h5><i class="fas fa-check-circle text-success"></i> Import Complete</h5>';
         document.getElementById('import-status-message').className = 'alert alert-success';
         document.getElementById('import-status-message').innerHTML = 
-            '<i class="fas fa-check-circle"></i> All products imported successfully!';
+            '<i class="fas fa-check-circle"></i> All products imported successfully! Shopify IDs are being written back to Mergado...';
         
-        document.getElementById('step-writeback').style.display = 'block';
-    }
-
-    async function startWriteback() {
-        const token = window.authManager.getAccessToken();
-        
-        document.getElementById('writeback-btn').disabled = true;
-        document.getElementById('writeback-loading').style.display = 'block';
-        
-        try {
-            const response = await fetch(`/api/import/writeback/${currentJobId}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            
-            if (!response.ok) throw new Error('Writeback failed');
-            
-            const data = await response.json();
-            
-            document.getElementById('writeback-loading').style.display = 'none';
-            
-            const resultDiv = document.getElementById('writeback-result');
-            if (data.success) {
-                resultDiv.className = 'alert alert-success';
-                resultDiv.innerHTML = `
-                    <i class="fas fa-check-circle"></i> 
-                    ${data.message} (${data.mappings_count} products)
-                `;
-            } else {
-                resultDiv.className = 'alert alert-warning';
-                resultDiv.innerHTML = `
-                    <i class="fas fa-exclamation-triangle"></i> 
-                    ${data.message}
-                `;
-            }
-            resultDiv.style.display = 'block';
-            
-            document.getElementById('step-complete').style.display = 'block';
-            
-        } catch (error) {
-            console.error('Writeback failed:', error);
-            document.getElementById('writeback-loading').style.display = 'none';
-            alert('Writeback failed: ' + error.message);
-        }
+        document.getElementById('step-complete').style.display = 'block';
     }
 
     function showError(message) {
