@@ -175,3 +175,49 @@ def create_shopify_id_mappings_table():
             'status': 'error',
             'error': str(e)
         }), 500
+
+
+@admin_bp.route('/add-last-synced-at-column', methods=['POST'])
+def add_last_synced_at_column():
+    """
+    Emergency fix: directly add last_synced_at column to shopify_id_mappings table.
+    This bypasses Alembic and should only be used if migrations are failing.
+    Also updates the alembic_version to mark migration as complete.
+    """
+    try:
+        from sqlalchemy import text
+        
+        with db.engine.connect() as conn:
+            # Add column if it doesn't exist
+            conn.execute(text("""
+                ALTER TABLE shopify_id_mappings 
+                ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP
+            """))
+            
+            # Create index if it doesn't exist
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_shopify_id_mappings_last_synced_at 
+                ON shopify_id_mappings(last_synced_at)
+            """))
+            
+            # Update alembic_version to mark migration as applied
+            conn.execute(text("""
+                UPDATE alembic_version 
+                SET version_num = '5faab9b23ecc'
+            """))
+            
+            conn.commit()
+        
+        logger.info("Successfully added last_synced_at column and updated alembic_version")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Column and index added successfully, alembic_version updated to 5faab9b23ecc'
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to add column: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
