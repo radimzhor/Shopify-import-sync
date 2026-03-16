@@ -1,7 +1,7 @@
 """add last_synced_at to shopify_id_mappings
 
 Revision ID: 5faab9b23ecc
-Revises: a3f1c9d2e8b4
+Revises: b9e3e1e52c34
 Create Date: 2026-03-16 12:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '5faab9b23ecc'
-down_revision = 'a3f1c9d2e8b4'
+down_revision = 'b9e3e1e52c34'
 branch_labels = None
 depends_on = None
 
