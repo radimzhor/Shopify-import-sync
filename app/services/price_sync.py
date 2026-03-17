@@ -24,15 +24,17 @@ class PriceSyncService:
     Synchronizes prices from Mergado to Shopify.
     
     Workflow:
-    1. Fetch products from Mergado with ITEM_ID, PRICE, and shopify_id
-    2. For each SKU, find matching Shopify variant
-    3. Update Shopify variant price via Variants API
-    4. Log results to database
+    1. Fetch products from Mergado with SKU, price, and compare-at price
+    2. Look up Shopify product/variant IDs from database mappings
+    3. Find matching Shopify variant (by variant_id, SKU, or single variant)
+    4. Update Shopify variant price and compare-at price via Variants API
+    5. Log results to database
     """
     
-    # Mergado element paths
-    SKU_ELEMENT = 'ITEM_ID'
-    PRICE_ELEMENT = 'PRICE'
+    # Mergado element paths (from Shopify CSV output feed)
+    SKU_ELEMENT = 'Variant SKU'
+    PRICE_ELEMENT = 'Variant Price'
+    COMPARE_AT_PRICE_ELEMENT = 'Variant Compare At Price'
     SHOPIFY_ID_ELEMENT = 'shopify_id'
     
     def __init__(
@@ -52,62 +54,6 @@ class PriceSyncService:
         self.mergado = mergado_client
         self.shopify = shopify_service
         self.sync_config = sync_config
-    
-    def _handle_stale_mapping(self, project_id: int, sku: str, shopify_id: str) -> None:
-        """
-        Handle stale mapping when product is not found in Shopify (404).
-        
-        Logs the deletion for audit trail and removes the mapping from database.
-        
-        Args:
-            project_id: Internal project ID
-            sku: Product SKU
-            shopify_id: Shopify product ID that no longer exists
-        """
-        # Look up the mapping
-        mapping = ShopifyIDMapping.query.filter_by(
-            project_id=project_id,
-            sku=sku
-        ).first()
-        
-        if mapping:
-            # Audit log before deletion
-            logger.warning(
-                f"[AUDIT] Deleting stale mapping: project={project_id}, sku={sku}, "
-                f"shopify_product_id={mapping.shopify_product_id}, "
-                f"shopify_variant_id={mapping.shopify_variant_id}, "
-                f"last_updated={mapping.updated_at}, last_synced={mapping.last_synced_at}. "
-                f"Reason: Product {shopify_id} returned 404 from Shopify API."
-            )
-            
-            # Delete the stale mapping
-            db.session.delete(mapping)
-            db.session.commit()
-            
-            logger.info(f"Removed stale mapping for SKU {sku} (product {shopify_id} not found)")
-        else:
-            # Mapping not in our database, but was in Mergado feed
-            logger.warning(
-                f"Product {shopify_id} for SKU {sku} not found in Shopify, "
-                f"but no mapping exists in local database"
-            )
-    
-    def _mark_mapping_synced(self, project_id: int, sku: str) -> None:
-        """
-        Update last_synced_at timestamp for a successful sync.
-        
-        Args:
-            project_id: Internal project ID
-            sku: Product SKU
-        """
-        mapping = ShopifyIDMapping.query.filter_by(
-            project_id=project_id,
-            sku=sku
-        ).first()
-        
-        if mapping:
-            mapping.last_synced_at = datetime.utcnow()
-            db.session.commit()
     
     def sync_prices(self) -> Dict[str, Any]:
         """
@@ -138,7 +84,7 @@ class PriceSyncService:
                 values_to_extract=[
                     self.SKU_ELEMENT,
                     self.PRICE_ELEMENT,
-                    self.SHOPIFY_ID_ELEMENT
+                    self.COMPARE_AT_PRICE_ELEMENT
                 ]
             )
             
@@ -151,60 +97,113 @@ class PriceSyncService:
             for product in products:
                 sku = None
                 try:
-                    # Extract values
-                    sku = product.get('values', {}).get(self.SKU_ELEMENT)
-                    price = product.get('values', {}).get(self.PRICE_ELEMENT)
-                    shopify_id = product.get('values', {}).get(self.SHOPIFY_ID_ELEMENT)
+                    # Extract values (Mergado API returns data under 'data' key, not 'values')
+                    product_data = product.get('data', {})
+                    sku = product_data.get(self.SKU_ELEMENT)
+                    price = product_data.get(self.PRICE_ELEMENT)
+                    compare_at_price = product_data.get(self.COMPARE_AT_PRICE_ELEMENT)
                     
-                    # Skip if missing data
-                    if not sku or not shopify_id or not price:
+                    # Skip if missing SKU
+                    if not sku:
                         continue
+                    
+                    # Get shopify_id from database mapping (more reliable than Mergado element)
+                    mapping = ShopifyIDMapping.query.filter_by(
+                        project_id=project.id,
+                        sku=sku
+                    ).first()
+                    
+                    if not mapping:
+                        continue
+                    
+                    shopify_product_id = mapping.shopify_product_id
+                    shopify_variant_id = mapping.shopify_variant_id
                     
                     # Parse price value
                     try:
-                        price_value = float(price)
+                        price_value = float(price) if price else None
                     except (ValueError, TypeError):
                         logger.warning(f"Invalid price value for SKU {sku}: {price}")
                         continue
                     
+                    # Skip if no valid price
+                    if price_value is None:
+                        continue
+                    
+                    # Parse compare-at price (optional for non-discounted products)
+                    compare_at_price_value = None
+                    if compare_at_price:
+                        try:
+                            compare_at_price_value = float(compare_at_price)
+                        except (ValueError, TypeError):
+                            logger.warning(f"Invalid compare-at price for SKU {sku}: {compare_at_price}")
+                    
                     # Get Shopify product to find variant
                     try:
-                        shopify_product = self.shopify.get_product(shopify_id)
+                        shopify_product = self.shopify.get_product(shopify_product_id)
                     except APIError as e:
                         # Handle 404 - product was deleted in Shopify
                         if e.status_code == 404:
-                            self._handle_stale_mapping(project.id, sku, shopify_id)
+                            logger.warning(
+                                f"[AUDIT] Deleting stale mapping: project={project.id}, sku={sku}, "
+                                f"shopify_product_id={shopify_product_id}, shopify_variant_id={shopify_variant_id}. "
+                                f"Reason: Product returned 404 from Shopify API."
+                            )
+                            db.session.delete(mapping)
+                            db.session.commit()
                             items_failed += 1
                             continue
                         # Re-raise other errors
                         raise
                     
-                    # Find variant by SKU
+                    # Find variant (same logic as stock sync)
                     variant = None
-                    for v in shopify_product.get('product', {}).get('variants', []):
-                        if v.get('sku') == sku:
-                            variant = v
-                            break
+                    variants = shopify_product.get('product', {}).get('variants', [])
+                    
+                    # Try to match by variant_id if we have it
+                    if shopify_variant_id:
+                        for v in variants:
+                            if str(v.get('id')) == str(shopify_variant_id):
+                                variant = v
+                                break
+                    
+                    # If not found by variant_id, try matching by SKU (for simple products)
+                    if not variant:
+                        for v in variants:
+                            if v.get('sku') == sku:
+                                variant = v
+                                break
+                    
+                    # If still not found and product has only one variant, use it (simple product)
+                    if not variant and len(variants) == 1:
+                        variant = variants[0]
                     
                     if not variant:
-                        logger.warning(f"Variant not found for SKU {sku} in product {shopify_id}")
+                        logger.warning(f"Variant not found for SKU {sku} in product {shopify_product_id}")
                         items_failed += 1
                         continue
                     
-                    # Update variant price
+                    # Update variant price (and compare-at price if present)
                     variant_id = variant.get('id')
+                    variant_update = {
+                        'variant': {
+                            'id': variant_id,
+                            'price': f"{price_value:.2f}"
+                        }
+                    }
+                    
+                    # Add compare-at price if present (for discounted products)
+                    if compare_at_price_value is not None:
+                        variant_update['variant']['compare_at_price'] = f"{compare_at_price_value:.2f}"
+                    
                     self.shopify.update_variant(
                         variant_id=str(variant_id),
-                        variant_data={
-                            'variant': {
-                                'id': variant_id,
-                                'price': f"{price_value:.2f}"
-                            }
-                        }
+                        variant_data=variant_update
                     )
                     
                     # Mark mapping as synced (update last_synced_at)
-                    self._mark_mapping_synced(project.id, sku)
+                    mapping.last_synced_at = datetime.utcnow()
+                    db.session.commit()
                     
                     items_synced += 1
                     logger.debug(f"Updated price for SKU {sku}: {price_value:.2f}")
