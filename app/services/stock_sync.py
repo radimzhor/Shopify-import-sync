@@ -157,7 +157,6 @@ class StockSyncService:
         db.session.flush()
         
         logger.info(f"Starting stock sync for project {project_id}")
-        logger.info("Debug logs will be written to /tmp/debug-stock-sync.log")
         
         try:
             # Get primary location
@@ -181,21 +180,9 @@ class StockSyncService:
             items_failed = 0
             errors = []
             
-            # #region agent log
-            debug_counter = 0
-            # #endregion
-            
             for product in products:
-                # #region agent log
-                debug_counter += 1
-                # #endregion
                 sku = None
                 try:
-                    # #region agent log
-                    if debug_counter <= 3: 
-                        product_data = product.get('data', {})
-                        import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'data_keys':list(product_data.keys()),'has_values':'values' in product,'has_data':'data' in product,'element_names_looking_for':[self.SKU_ELEMENT,self.STOCK_ELEMENT,self.SHOPIFY_ID_ELEMENT],'product_data_sample':str(product_data)[:500]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
-                    # #endregion
                     # Extract values (Mergado API returns data under 'data' key, not 'values')
                     product_data = product.get('data', {})
                     sku = product_data.get(self.SKU_ELEMENT)
@@ -217,17 +204,10 @@ class StockSyncService:
                     ).first()
                     
                     if not mapping:
-                        # #region agent log
-                        if debug_counter <= 10: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:212','message':'SKIPPED - no mapping','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'NEW'})+'\n')
-                        # #endregion
                         continue
                     
                     shopify_product_id = mapping.shopify_product_id
                     shopify_variant_id = mapping.shopify_variant_id
-                    
-                    # #region agent log
-                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:222','message':'Extracted from DB mapping','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_product_id':str(shopify_product_id),'shopify_variant_id':str(shopify_variant_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'NEW'})+'\n')
-                    # #endregion
                     
                     # Parse stock value
                     try:
@@ -277,9 +257,6 @@ class StockSyncService:
                         variant = variants[0]
                     
                     if not variant:
-                        # #region agent log
-                        import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:268','message':'Variant not found','data':{'sku':str(sku),'looking_for_variant_id':str(shopify_variant_id),'product_id':str(shopify_product_id),'num_variants':len(variants),'available_variant_ids':[str(v.get('id')) for v in variants],'available_variant_skus':[str(v.get('sku')) for v in variants]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'VARIANT_MATCH'})+'\n')
-                        # #endregion
                         logger.warning(f"Variant not found for SKU {sku} in product {shopify_product_id}")
                         items_failed += 1
                         continue
@@ -336,16 +313,6 @@ class StockSyncService:
                     logger.error(f"Failed to sync stock for SKU {sku}: {e}")
                     items_failed += 1
                     errors.append(f"{sku}: {str(e)}")
-            
-            # #region agent log
-            import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:256','message':'Loop completed','data':{'total_products':len(products),'items_synced':items_synced,'items_failed':items_failed,'products_processed':debug_counter},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'ALL'})+'\n')
-            try:
-                with open('/tmp/debug-stock-sync.log', 'r') as f:
-                    debug_content = f.read()
-                    logger.info(f"DEBUG LOG CONTENT:\n{debug_content}")
-            except Exception as e:
-                logger.error(f"Failed to read debug log: {e}")
-            # #endregion
             
             # Update sync log
             sync_log.status = SyncStatus.PARTIAL.value if items_failed > 0 else SyncStatus.SUCCESS.value
