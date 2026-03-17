@@ -189,12 +189,12 @@ class StockSyncService:
                 sku = None
                 try:
                     # #region agent log
-                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'has_values':'values' in product,'product_sample':str(product)[:300]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
+                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'has_values':'values' in product,'has_data':'data' in product,'product_sample':str(product)[:300]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
                     # #endregion
-                    # Extract values
-                    sku = product.get('values', {}).get(self.SKU_ELEMENT)
-                    stock = product.get('values', {}).get(self.STOCK_ELEMENT)
-                    shopify_id = product.get('values', {}).get(self.SHOPIFY_ID_ELEMENT)
+                    # Extract values (Mergado API returns data under 'data' key, not 'values')
+                    sku = product.get('data', {}).get(self.SKU_ELEMENT)
+                    stock = product.get('data', {}).get(self.STOCK_ELEMENT)
+                    shopify_id = product.get('data', {}).get(self.SHOPIFY_ID_ELEMENT)
                     
                     # #region agent log
                     if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:196','message':'Extracted values','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_id':str(shopify_id),'sku_present':bool(sku),'shopify_id_present':bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
