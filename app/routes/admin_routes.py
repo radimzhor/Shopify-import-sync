@@ -39,16 +39,22 @@ def db_status():
         
         # Check if projects table has shopify_writeback_rule_id column
         inspector = inspect(db.engine)
-        columns = [col['name'] for col in inspector.get_columns('projects')]
-        has_writeback_column = 'shopify_writeback_rule_id' in columns
+        projects_columns = [col['name'] for col in inspector.get_columns('projects')]
+        has_writeback_column = 'shopify_writeback_rule_id' in projects_columns
+        
+        # Check if shops table has OAuth token columns
+        shops_columns = [col['name'] for col in inspector.get_columns('shops')]
+        has_oauth_tokens = all(col in shops_columns for col in ['access_token', 'refresh_token', 'token_expires_at'])
         
         return jsonify({
             'status': 'ok',
             'current_revision': current_revision,
             'head_revision': head_revision,
             'up_to_date': current_revision == head_revision,
-            'projects_columns': columns,
-            'has_shopify_writeback_rule_id': has_writeback_column
+            'projects_columns': projects_columns,
+            'has_shopify_writeback_rule_id': has_writeback_column,
+            'shops_columns': shops_columns,
+            'has_oauth_tokens': has_oauth_tokens
         })
         
     except Exception as e:
@@ -217,6 +223,59 @@ def add_last_synced_at_column():
         
     except Exception as e:
         logger.error(f"Failed to add column: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/add-shop-oauth-tokens', methods=['POST'])
+def add_shop_oauth_tokens():
+    """
+    Emergency fix: directly add OAuth token columns to shops table.
+    This bypasses Alembic and should only be used if migrations are failing.
+    Adds: access_token, refresh_token, token_expires_at columns.
+    Also updates the alembic_version to mark migration as complete.
+    """
+    try:
+        from sqlalchemy import text
+        
+        with db.engine.connect() as conn:
+            # Add access_token column if it doesn't exist
+            conn.execute(text("""
+                ALTER TABLE shops 
+                ADD COLUMN IF NOT EXISTS access_token TEXT
+            """))
+            
+            # Add refresh_token column if it doesn't exist
+            conn.execute(text("""
+                ALTER TABLE shops 
+                ADD COLUMN IF NOT EXISTS refresh_token TEXT
+            """))
+            
+            # Add token_expires_at column if it doesn't exist
+            conn.execute(text("""
+                ALTER TABLE shops 
+                ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP
+            """))
+            
+            # Update alembic_version to mark migration as applied
+            conn.execute(text("""
+                UPDATE alembic_version 
+                SET version_num = 'f91b6a8_shop_oauth'
+            """))
+            
+            conn.commit()
+        
+        logger.info("Successfully added OAuth token columns to shops table")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'OAuth token columns added successfully to shops table, alembic_version updated'
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to add OAuth token columns: {e}", exc_info=True)
         return jsonify({
             'status': 'error',
             'error': str(e)
