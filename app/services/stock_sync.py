@@ -30,9 +30,9 @@ class StockSyncService:
     4. Log results to database
     """
     
-    # Mergado element paths
-    SKU_ELEMENT = 'ITEM_ID'
-    STOCK_ELEMENT = 'STOCK_AMOUNT'
+    # Mergado element paths (from Shopify CSV output feed)
+    SKU_ELEMENT = 'Variant SKU'
+    STOCK_ELEMENT = 'Variant Inventory Qty'
     SHOPIFY_ID_ELEMENT = 'shopify_id'
     
     def __init__(
@@ -189,7 +189,9 @@ class StockSyncService:
                 sku = None
                 try:
                     # #region agent log
-                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'has_values':'values' in product,'has_data':'data' in product,'product_sample':str(product)[:300]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
+                    if debug_counter <= 3: 
+                        product_data = product.get('data', {})
+                        import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'data_keys':list(product_data.keys()),'has_values':'values' in product,'has_data':'data' in product,'element_names_looking_for':[self.SKU_ELEMENT,self.STOCK_ELEMENT,self.SHOPIFY_ID_ELEMENT],'product_data_sample':str(product_data)[:500]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
                     # #endregion
                     # Extract values (Mergado API returns data under 'data' key, not 'values')
                     sku = product.get('data', {}).get(self.SKU_ELEMENT)
@@ -197,7 +199,7 @@ class StockSyncService:
                     shopify_id = product.get('data', {}).get(self.SHOPIFY_ID_ELEMENT)
                     
                     # #region agent log
-                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:196','message':'Extracted values','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_id':str(shopify_id),'sku_present':bool(sku),'shopify_id_present':bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
+                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:198','message':'Extracted values','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_id':str(shopify_id),'sku_present':bool(sku),'shopify_id_present':bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
                     # #endregion
                     
                     # Skip if missing data
@@ -206,6 +208,10 @@ class StockSyncService:
                         if debug_counter <= 10: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:204','message':'SKIPPED - missing data','data':{'product_num':debug_counter,'sku':str(sku),'shopify_id':str(shopify_id),'missing_sku':not bool(sku),'missing_shopify_id':not bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
                         # #endregion
                         continue
+                    
+                    # Parse shopify_id (format: "productid:variantid")
+                    # Extract just the product ID part for get_product API call
+                    shopify_product_id = shopify_id.split(':')[0] if ':' in shopify_id else shopify_id
                     
                     # Parse stock value
                     try:
@@ -216,11 +222,11 @@ class StockSyncService:
                     
                     # Get Shopify product to find variant
                     try:
-                        shopify_product = self.shopify.get_product(shopify_id)
+                        shopify_product = self.shopify.get_product(shopify_product_id)
                     except APIError as e:
                         # Handle 404 - product was deleted in Shopify
                         if e.status_code == 404:
-                            self._handle_stale_mapping(project.id, sku, shopify_id)
+                            self._handle_stale_mapping(project.id, sku, shopify_product_id)
                             items_failed += 1
                             continue
                         # Re-raise other errors
@@ -234,7 +240,7 @@ class StockSyncService:
                             break
                     
                     if not variant:
-                        logger.warning(f"Variant not found for SKU {sku} in product {shopify_id}")
+                        logger.warning(f"Variant not found for SKU {sku} in product {shopify_product_id}")
                         items_failed += 1
                         continue
                     
