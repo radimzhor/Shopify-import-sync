@@ -155,6 +155,7 @@ class StockSyncService:
         db.session.flush()
         
         logger.info(f"Starting stock sync for project {project_id}")
+        logger.info("Debug logs will be written to /tmp/debug-stock-sync.log")
         
         try:
             # Get primary location
@@ -188,7 +189,7 @@ class StockSyncService:
                 sku = None
                 try:
                     # #region agent log
-                    if debug_counter <= 3: import json;open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-1a3c34.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'has_values':'values' in product,'product_sample':str(product)[:300]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
+                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'has_values':'values' in product,'product_sample':str(product)[:300]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
                     # #endregion
                     # Extract values
                     sku = product.get('values', {}).get(self.SKU_ELEMENT)
@@ -196,13 +197,13 @@ class StockSyncService:
                     shopify_id = product.get('values', {}).get(self.SHOPIFY_ID_ELEMENT)
                     
                     # #region agent log
-                    if debug_counter <= 3: import json;open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-1a3c34.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:196','message':'Extracted values','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_id':str(shopify_id),'sku_present':bool(sku),'shopify_id_present':bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
+                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:196','message':'Extracted values','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_id':str(shopify_id),'sku_present':bool(sku),'shopify_id_present':bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
                     # #endregion
                     
                     # Skip if missing data
                     if not sku or not shopify_id:
                         # #region agent log
-                        if debug_counter <= 10: import json;open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-1a3c34.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:204','message':'SKIPPED - missing data','data':{'product_num':debug_counter,'sku':str(sku),'shopify_id':str(shopify_id),'missing_sku':not bool(sku),'missing_shopify_id':not bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
+                        if debug_counter <= 10: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:204','message':'SKIPPED - missing data','data':{'product_num':debug_counter,'sku':str(sku),'shopify_id':str(shopify_id),'missing_sku':not bool(sku),'missing_shopify_id':not bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
                         # #endregion
                         continue
                     
@@ -262,7 +263,13 @@ class StockSyncService:
                     errors.append(f"{sku}: {str(e)}")
             
             # #region agent log
-            import json;open('/Users/radimzhor/Documents/Mergado/Shopify_connector-main/.cursor/debug-1a3c34.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:256','message':'Loop completed','data':{'total_products':len(products),'items_synced':items_synced,'items_failed':items_failed,'products_processed':debug_counter},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'ALL'})+'\n')
+            import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:256','message':'Loop completed','data':{'total_products':len(products),'items_synced':items_synced,'items_failed':items_failed,'products_processed':debug_counter},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'ALL'})+'\n')
+            try:
+                with open('/tmp/debug-stock-sync.log', 'r') as f:
+                    debug_content = f.read()
+                    logger.info(f"DEBUG LOG CONTENT:\n{debug_content}")
+            except Exception as e:
+                logger.error(f"Failed to read debug log: {e}")
             # #endregion
             
             # Update sync log
