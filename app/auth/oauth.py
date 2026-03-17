@@ -181,6 +181,22 @@ def callback():
         entity_id = tokens.get('entity_id', '')
         user_id = tokens.get('user_id', '')
         refresh_token_val = tokens.get('refresh_token', '')
+        
+        # Store tokens in database for background sync operations
+        from app import db
+        from app.models.shop import Shop
+        from datetime import datetime, timedelta
+        
+        if entity_id:
+            shop = Shop.query.filter_by(mergado_shop_id=entity_id).first()
+            if shop:
+                shop.access_token = tokens['access_token']
+                shop.refresh_token = refresh_token_val
+                # Calculate expiry time (typically 1 hour from now)
+                expires_in = tokens.get('expires_in', 3600)
+                shop.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+                db.session.commit()
+                current_app.logger.info(f"Updated tokens in database for shop {shop.id}")
 
         html = f"""
 <!DOCTYPE html>

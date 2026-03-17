@@ -25,6 +25,11 @@ class Shop(db.Model):
     name = db.Column(db.String(200), nullable=False)
     shopify_connected = db.Column(db.Boolean, default=False, nullable=False)
     
+    # OAuth tokens (for background sync operations)
+    access_token = db.Column(db.Text, nullable=True)
+    refresh_token = db.Column(db.Text, nullable=True)
+    token_expires_at = db.Column(db.DateTime, nullable=True)
+    
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

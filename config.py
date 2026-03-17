@@ -14,6 +14,7 @@ from app.auth.oauth import auth_bp
 from app.middleware.error_handlers import register_error_handlers
 from app.middleware.logging import setup_logging
 from app.middleware.rate_limit import init_rate_limiter
+from app.services.scheduler import sync_scheduler
 from settings import settings
 
 
@@ -47,6 +48,9 @@ def create_app(config_object: str = None) -> Flask:
     
     # Initialize rate limiting
     init_rate_limiter(app)
+    
+    # Initialize and start sync scheduler
+    _init_scheduler(app)
 
     return app
 
@@ -118,3 +122,16 @@ def _init_database(app: Flask) -> None:
                 db.create_all()
         except Exception as e:
             app.logger.warning(f"Table check/create failed: {e}")
+
+
+def _init_scheduler(app: Flask) -> None:
+    """Initialize and start the background sync scheduler."""
+    sync_scheduler.init_app(app)
+    
+    # Start scheduler (runs in background thread)
+    sync_scheduler.start()
+    app.logger.info("Background sync scheduler initialized")
+    
+    # Register cleanup on app shutdown
+    import atexit
+    atexit.register(lambda: sync_scheduler.shutdown())
