@@ -167,8 +167,7 @@ class StockSyncService:
                 limit=100,
                 values_to_extract=[
                     self.SKU_ELEMENT,
-                    self.STOCK_ELEMENT,
-                    self.SHOPIFY_ID_ELEMENT
+                    self.STOCK_ELEMENT
                 ]
             )
             
@@ -196,22 +195,29 @@ class StockSyncService:
                     # Extract values (Mergado API returns data under 'data' key, not 'values')
                     sku = product.get('data', {}).get(self.SKU_ELEMENT)
                     stock = product.get('data', {}).get(self.STOCK_ELEMENT)
-                    shopify_id = product.get('data', {}).get(self.SHOPIFY_ID_ELEMENT)
                     
-                    # #region agent log
-                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:198','message':'Extracted values','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_id':str(shopify_id),'sku_present':bool(sku),'shopify_id_present':bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
-                    # #endregion
+                    # Skip if missing SKU
+                    if not sku:
+                        continue
                     
-                    # Skip if missing data
-                    if not sku or not shopify_id:
+                    # Get shopify_id from database mapping (more reliable than Mergado element)
+                    mapping = ShopifyIDMapping.query.filter_by(
+                        project_id=project.id,
+                        sku=sku
+                    ).first()
+                    
+                    if not mapping:
                         # #region agent log
-                        if debug_counter <= 10: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:204','message':'SKIPPED - missing data','data':{'product_num':debug_counter,'sku':str(sku),'shopify_id':str(shopify_id),'missing_sku':not bool(sku),'missing_shopify_id':not bool(shopify_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B'})+'\n')
+                        if debug_counter <= 10: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:212','message':'SKIPPED - no mapping','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'NEW'})+'\n')
                         # #endregion
                         continue
                     
-                    # Parse shopify_id (format: "productid:variantid")
-                    # Extract just the product ID part for get_product API call
-                    shopify_product_id = shopify_id.split(':')[0] if ':' in shopify_id else shopify_id
+                    shopify_product_id = mapping.shopify_product_id
+                    shopify_variant_id = mapping.shopify_variant_id
+                    
+                    # #region agent log
+                    if debug_counter <= 3: import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:222','message':'Extracted from DB mapping','data':{'product_num':debug_counter,'sku':str(sku),'stock':str(stock),'shopify_product_id':str(shopify_product_id),'shopify_variant_id':str(shopify_variant_id)},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'NEW'})+'\n')
+                    # #endregion
                     
                     # Parse stock value
                     try:
@@ -220,27 +226,37 @@ class StockSyncService:
                         logger.warning(f"Invalid stock value for SKU {sku}: {stock}")
                         continue
                     
-                    # Get Shopify product to find variant
+                    # Get Shopify product to find variant and inventory_item_id
                     try:
                         shopify_product = self.shopify.get_product(shopify_product_id)
                     except APIError as e:
                         # Handle 404 - product was deleted in Shopify
                         if e.status_code == 404:
-                            self._handle_stale_mapping(project.id, sku, shopify_product_id)
+                            logger.warning(
+                                f"[AUDIT] Deleting stale mapping: project={project.id}, sku={sku}, "
+                                f"shopify_product_id={shopify_product_id}, shopify_variant_id={shopify_variant_id}. "
+                                f"Reason: Product returned 404 from Shopify API."
+                            )
+                            db.session.delete(mapping)
+                            db.session.commit()
                             items_failed += 1
                             continue
                         # Re-raise other errors
                         raise
                     
-                    # Find variant by SKU
+                    # Find variant by variant_id (we already have it from mapping)
                     variant = None
-                    for v in shopify_product.get('product', {}).get('variants', []):
-                        if v.get('sku') == sku:
+                    variants = shopify_product.get('product', {}).get('variants', [])
+                    for v in variants:
+                        if str(v.get('id')) == str(shopify_variant_id):
                             variant = v
                             break
                     
                     if not variant:
-                        logger.warning(f"Variant not found for SKU {sku} in product {shopify_product_id}")
+                        # #region agent log
+                        import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:258','message':'Variant not found','data':{'sku':str(sku),'looking_for_variant_id':str(shopify_variant_id),'product_id':str(shopify_product_id),'available_variant_ids':[str(v.get('id')) for v in variants],'available_variant_skus':[str(v.get('sku')) for v in variants]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'VARIANT_MATCH'})+'\n')
+                        # #endregion
+                        logger.warning(f"Variant {shopify_variant_id} not found in product {shopify_product_id} (SKU {sku})")
                         items_failed += 1
                         continue
                     
@@ -258,7 +274,8 @@ class StockSyncService:
                     )
                     
                     # Mark mapping as synced (update last_synced_at)
-                    self._mark_mapping_synced(project.id, sku)
+                    mapping.last_synced_at = datetime.utcnow()
+                    db.session.commit()
                     
                     items_synced += 1
                     logger.debug(f"Updated stock for SKU {sku}: {stock_qty}")
