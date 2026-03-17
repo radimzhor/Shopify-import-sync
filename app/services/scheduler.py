@@ -145,7 +145,7 @@ class SyncScheduler:
             # Initialize clients
             mergado_client = MergadoClient(access_token)
             shopify_service = ShopifyService(
-                client=mergado_client,
+                mergado_client=mergado_client,
                 shop_id=str(project.shop.mergado_shop_id)
             )
             
