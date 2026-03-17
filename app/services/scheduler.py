@@ -90,10 +90,6 @@ class SyncScheduler:
                 # Get all enabled sync configs
                 configs = SyncConfig.query.filter_by(enabled=True).all()
                 
-                # #region agent log
-                import json;logger.info(f"DEBUG_SCHEDULER: {json.dumps({'location':'scheduler.py:88','message':'Checking configs','data':{'num_configs':len(configs),'config_details':[{'id':c.id,'project_id':c.project_id,'sync_type':c.sync_type,'enabled':c.enabled,'interval_minutes':c.interval_minutes,'last_sync_at':c.last_sync_at.isoformat() if c.last_sync_at else None} for c in configs]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,C,D,E'})}")
-                # #endregion
-                
                 for config in configs:
                     if self._is_sync_due(config):
                         logger.info(
@@ -117,22 +113,13 @@ class SyncScheduler:
         """
         # If never synced before, it's due
         if config.last_sync_at is None:
-            # #region agent log
-            import json;logger.info(f"DEBUG_SCHEDULER: {json.dumps({'location':'scheduler.py:116','message':'Sync due - never synced','data':{'config_id':config.id,'sync_type':config.sync_type,'last_sync_at':None},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A'})}")
-            # #endregion
             return True
         
         # Calculate next sync time
         next_sync_at = config.last_sync_at + timedelta(minutes=config.interval_minutes)
-        now = datetime.utcnow()
-        is_due = now >= next_sync_at
-        
-        # #region agent log
-        import json;logger.info(f"DEBUG_SCHEDULER: {json.dumps({'location':'scheduler.py:126','message':'Due check calculation','data':{'config_id':config.id,'sync_type':config.sync_type,'last_sync_at':config.last_sync_at.isoformat(),'interval_minutes':config.interval_minutes,'next_sync_at':next_sync_at.isoformat(),'now':now.isoformat(),'is_due':is_due,'seconds_until_due':int((next_sync_at - now).total_seconds())},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,B,E'})}")
-        # #endregion
         
         # Check if we've passed the next sync time
-        return is_due
+        return datetime.utcnow() >= next_sync_at
     
     def _execute_sync(self, config: SyncConfig):
         """
@@ -142,10 +129,6 @@ class SyncScheduler:
             config: SyncConfig to execute
         """
         try:
-            # #region agent log
-            import json;logger.info(f"DEBUG_SCHEDULER: {json.dumps({'location':'scheduler.py:145','message':'Executing sync','data':{'config_id':config.id,'sync_type':config.sync_type,'project_id':config.project_id,'last_sync_at_before':config.last_sync_at.isoformat() if config.last_sync_at else None},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,C'})}")
-            # #endregion
-            
             project = config.project
             
             # Get OAuth token from session (stored in project for background syncs)
@@ -190,10 +173,6 @@ class SyncScheduler:
                 f"{result.get('items_synced', 0)} synced, "
                 f"{result.get('items_failed', 0)} failed"
             )
-            
-            # #region agent log
-            from app import db;db.session.refresh(config);import json;logger.info(f"DEBUG_SCHEDULER: {json.dumps({'location':'scheduler.py:195','message':'Sync completed','data':{'config_id':config.id,'sync_type':config.sync_type,'last_sync_at_after':config.last_sync_at.isoformat() if config.last_sync_at else None,'result':result},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'A,C'})}")
-            # #endregion
         
         except Exception as e:
             logger.error(
