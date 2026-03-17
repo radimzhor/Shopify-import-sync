@@ -18,10 +18,13 @@ Use when:
 # 2. Check if products have mappings
 # Products without ShopifyIDMapping entries will be skipped
 
-# 3. Check if inventory tracking is enabled
+# 3. For STOCK sync - Check if inventory tracking is enabled
 # Error: "Inventory item does not have inventory tracking enabled"
 
-# 4. Check if scheduler is running (for automatic syncs)
+# 4. For PRICE sync - Check if prices are valid numbers
+# Look for: "Invalid price value for SKU X"
+
+# 5. Check if scheduler is running (for automatic syncs)
 # Look for: "Background sync scheduler initialized"
 ```
 
@@ -144,7 +147,40 @@ except APIError as e:
         self.shopify.update_inventory_level(...)
 ```
 
-### Issue 4: Automatic Syncs Not Triggering
+### Issue 4: Price Sync Specifics
+
+**Element Names for Price Sync:**
+```python
+# Shopify CSV output feed names
+SKU_ELEMENT = 'Variant SKU'
+PRICE_ELEMENT = 'Variant Price'  # Final price (with discount applied)
+COMPARE_AT_PRICE_ELEMENT = 'Variant Compare At Price'  # Original price (before discount)
+```
+
+**Price Update Logic:**
+```python
+# Build variant update data
+variant_update = {
+    'variant': {
+        'id': variant_id,
+        'price': f"{price_value:.2f}"  # Required: final price
+    }
+}
+
+# Add compare-at price if present (for discounted products)
+if compare_at_price_value is not None:
+    variant_update['variant']['compare_at_price'] = f"{compare_at_price_value:.2f}"
+
+self.shopify.update_variant(variant_id=str(variant_id), variant_data=variant_update)
+```
+
+**Price vs Compare-At Price:**
+- **Variant Price**: Final price customer pays (after discount)
+- **Variant Compare At Price**: Original price (shows strikethrough in Shopify)
+- If compare-at price > price, Shopify displays discount
+- If compare-at price is empty/null, no discount shown
+
+### Issue 5: Automatic Syncs Not Triggering
 
 **Symptoms:**
 - Manual "Run now" works fine
@@ -290,9 +326,14 @@ def add_shop_oauth_tokens():
 
 ### 1. Element Names Matter
 Always use the **Shopify CSV output feed** column names when fetching from Mergado:
-- `Variant SKU` (not `ITEM_ID`)
-- `Variant Inventory Qty` (not `STOCK_AMOUNT`)
-- `Variant Inventory Tracker` (not `inventory_tracker`)
+
+| Purpose | ❌ Wrong (Internal) | ✅ Correct (Shopify CSV) |
+|---------|-------------------|-------------------------|
+| SKU | `ITEM_ID` | `Variant SKU` |
+| Stock Quantity | `STOCK_AMOUNT` | `Variant Inventory Qty` |
+| Inventory Tracker | `inventory_tracker` | `Variant Inventory Tracker` |
+| Price | `PRICE` | `Variant Price` |
+| Original Price | `PRICE_VAT` | `Variant Compare At Price` |
 
 ### 2. Data Structure is Key
 Mergado API returns: `product['data'][element_name]`, not `product['values']`.
