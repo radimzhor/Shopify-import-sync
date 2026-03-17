@@ -306,11 +306,13 @@ class StockSyncService:
                                 f"with tracker={inventory_tracker}"
                             )
                             self.shopify.update_variant(
-                                product_id=str(shopify_product_id),
                                 variant_id=str(variant.get('id')),
                                 variant_data={
-                                    'inventory_management': inventory_tracker,
-                                    'inventory_policy': 'deny'
+                                    'variant': {
+                                        'id': variant.get('id'),
+                                        'inventory_management': inventory_tracker,
+                                        'inventory_policy': 'deny'
+                                    }
                                 }
                             )
                             # Retry inventory update
