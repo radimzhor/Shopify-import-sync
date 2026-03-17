@@ -244,19 +244,33 @@ class StockSyncService:
                         # Re-raise other errors
                         raise
                     
-                    # Find variant by variant_id (we already have it from mapping)
+                    # Find variant
                     variant = None
                     variants = shopify_product.get('product', {}).get('variants', [])
-                    for v in variants:
-                        if str(v.get('id')) == str(shopify_variant_id):
-                            variant = v
-                            break
+                    
+                    # Try to match by variant_id if we have it
+                    if shopify_variant_id:
+                        for v in variants:
+                            if str(v.get('id')) == str(shopify_variant_id):
+                                variant = v
+                                break
+                    
+                    # If not found by variant_id, try matching by SKU (for simple products)
+                    if not variant:
+                        for v in variants:
+                            if v.get('sku') == sku:
+                                variant = v
+                                break
+                    
+                    # If still not found and product has only one variant, use it (simple product)
+                    if not variant and len(variants) == 1:
+                        variant = variants[0]
                     
                     if not variant:
                         # #region agent log
-                        import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:258','message':'Variant not found','data':{'sku':str(sku),'looking_for_variant_id':str(shopify_variant_id),'product_id':str(shopify_product_id),'available_variant_ids':[str(v.get('id')) for v in variants],'available_variant_skus':[str(v.get('sku')) for v in variants]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'VARIANT_MATCH'})+'\n')
+                        import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:268','message':'Variant not found','data':{'sku':str(sku),'looking_for_variant_id':str(shopify_variant_id),'product_id':str(shopify_product_id),'num_variants':len(variants),'available_variant_ids':[str(v.get('id')) for v in variants],'available_variant_skus':[str(v.get('sku')) for v in variants]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'VARIANT_MATCH'})+'\n')
                         # #endregion
-                        logger.warning(f"Variant {shopify_variant_id} not found in product {shopify_product_id} (SKU {sku})")
+                        logger.warning(f"Variant not found for SKU {sku} in product {shopify_product_id}")
                         items_failed += 1
                         continue
                     
