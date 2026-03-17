@@ -33,6 +33,8 @@ class StockSyncService:
     # Mergado element paths (from Shopify CSV output feed)
     SKU_ELEMENT = 'Variant SKU'
     STOCK_ELEMENT = 'Variant Inventory Qty'
+    INVENTORY_TRACKER_ELEMENT = 'Variant Inventory Tracker'  # Primary name
+    INVENTORY_TRACKER_ALT_ELEMENT = 'Inventory tracker'  # Alternative name
     SHOPIFY_ID_ELEMENT = 'shopify_id'
     
     def __init__(
@@ -167,7 +169,9 @@ class StockSyncService:
                 limit=100,
                 values_to_extract=[
                     self.SKU_ELEMENT,
-                    self.STOCK_ELEMENT
+                    self.STOCK_ELEMENT,
+                    self.INVENTORY_TRACKER_ELEMENT,
+                    self.INVENTORY_TRACKER_ALT_ELEMENT
                 ]
             )
             
@@ -193,8 +197,14 @@ class StockSyncService:
                         import json;open('/tmp/debug-stock-sync.log','a').write(json.dumps({'sessionId':'1a3c34','location':'stock_sync.py:188','message':'Product structure','data':{'product_num':debug_counter,'product_keys':list(product.keys()),'data_keys':list(product_data.keys()),'has_values':'values' in product,'has_data':'data' in product,'element_names_looking_for':[self.SKU_ELEMENT,self.STOCK_ELEMENT,self.SHOPIFY_ID_ELEMENT],'product_data_sample':str(product_data)[:500]},'timestamp':int(datetime.utcnow().timestamp()*1000),'hypothesisId':'C'})+'\n')
                     # #endregion
                     # Extract values (Mergado API returns data under 'data' key, not 'values')
-                    sku = product.get('data', {}).get(self.SKU_ELEMENT)
-                    stock = product.get('data', {}).get(self.STOCK_ELEMENT)
+                    product_data = product.get('data', {})
+                    sku = product_data.get(self.SKU_ELEMENT)
+                    stock = product_data.get(self.STOCK_ELEMENT)
+                    inventory_tracker = (
+                        product_data.get(self.INVENTORY_TRACKER_ELEMENT) or 
+                        product_data.get(self.INVENTORY_TRACKER_ALT_ELEMENT) or 
+                        'shopify'  # Default fallback
+                    )
                     
                     # Skip if missing SKU
                     if not sku:
@@ -281,11 +291,37 @@ class StockSyncService:
                         items_failed += 1
                         continue
                     
-                    self.shopify.update_inventory_level(
-                        inventory_item_id=str(inventory_item_id),
-                        location_id=location_id,
-                        available=stock_qty
-                    )
+                    # Try to update inventory
+                    try:
+                        self.shopify.update_inventory_level(
+                            inventory_item_id=str(inventory_item_id),
+                            location_id=location_id,
+                            available=stock_qty
+                        )
+                    except APIError as e:
+                        # If tracking is disabled, enable it and retry
+                        if 'inventory tracking enabled' in str(e).lower():
+                            logger.info(
+                                f"Enabling inventory tracking for variant {variant.get('id')} (SKU {sku}) "
+                                f"with tracker={inventory_tracker}"
+                            )
+                            self.shopify.update_variant(
+                                product_id=str(shopify_product_id),
+                                variant_id=str(variant.get('id')),
+                                variant_data={
+                                    'inventory_management': inventory_tracker,
+                                    'inventory_policy': 'deny'
+                                }
+                            )
+                            # Retry inventory update
+                            self.shopify.update_inventory_level(
+                                inventory_item_id=str(inventory_item_id),
+                                location_id=location_id,
+                                available=stock_qty
+                            )
+                        else:
+                            # Re-raise other errors
+                            raise
                     
                     # Mark mapping as synced (update last_synced_at)
                     mapping.last_synced_at = datetime.utcnow()
