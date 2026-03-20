@@ -36,6 +36,9 @@ class ShopifyVariant:
     option3_name: Optional[str] = None
     option3_value: Optional[str] = None
     
+    # Variant-level metafields (namespace.key: value)
+    metafields: Dict[str, str] = field(default_factory=dict)
+    
     # Raw row for additional fields
     raw_data: Dict[str, str] = field(default_factory=dict)
 
@@ -61,6 +64,9 @@ class ShopifyProduct:
     
     # Metafields (dict of namespace.key: value)
     metafields: Dict[str, str] = field(default_factory=dict)
+    
+    # Options (list of option names, e.g., ['Color', 'Size'])
+    options: List[str] = field(default_factory=list)
     
     # Variants
     variants: List[ShopifyVariant] = field(default_factory=list)
@@ -104,6 +110,7 @@ class ShopifyCSVParser:
         self.csv_path = csv_path
         self._metafield_columns = []
         self._other_columns = []
+        self._option_columns = []
     
     def _detect_metafield_columns(self, headers: List[str]) -> None:
         """
@@ -116,7 +123,6 @@ class ShopifyCSVParser:
         
         for header in headers:
             if '(product.metafields.custom.' in header:
-                # Extract metafield key
                 start = header.find('(product.metafields.custom.') + len('(product.metafields.custom.')
                 end = header.find(')', start)
                 if end > start:
@@ -124,6 +130,214 @@ class ShopifyCSVParser:
                     self._metafield_columns.append((header, key))
             elif header not in self.PRODUCT_COLUMNS and header not in self.VARIANT_COLUMNS:
                 self._other_columns.append(header)
+    
+    def _detect_option_columns(self, rows: List[Dict[str, str]]) -> List[str]:
+        """
+        Detect which metafield columns should be used as product options.
+        
+        Scans metafield columns to find up to 3 that contain non-empty values
+        in at least one row. These become the product's variant options.
+        
+        Args:
+            rows: All CSV rows for this product
+            
+        Returns:
+            List of up to 3 option names (e.g., ['Barva', 'Velikost'])
+        """
+        option_columns = []
+        
+        for column_name, metafield_key in self._metafield_columns:
+            if len(option_columns) >= 3:
+                break
+            
+            has_values = any(row.get(column_name, '').strip() for row in rows)
+            if has_values:
+                option_name = column_name.split(' (')[0]
+                option_columns.append(option_name)
+                logger.debug(f"Using metafield column '{column_name}' as option '{option_name}'")
+        
+        return option_columns
+    
+    def _build_product_from_rows(self, handle: str, rows: List[Dict[str, str]]) -> Optional[ShopifyProduct]:
+        """
+        Build complete product from all its CSV rows.
+        
+        This method:
+        1. Parses product-level data from first row
+        2. Detects dynamic options from metafield columns
+        3. Builds variants with option values
+        4. Adds variant metafields matched by option values
+        5. Collects images from both Image Src and Variant Image
+        6. Creates default variant if no variants exist
+        
+        Args:
+            handle: Product handle
+            rows: All CSV rows for this product
+            
+        Returns:
+            Complete ShopifyProduct or None if invalid
+        """
+        if not rows:
+            return None
+        
+        first_row = rows[0]
+        product = self._parse_product_base(first_row)
+        
+        option_columns = self._detect_option_columns(rows)
+        product.options = option_columns
+        
+        all_image_urls = set()
+        
+        variants = []
+        for row in rows:
+            if row.get('Image Src'):
+                all_image_urls.add(row['Image Src'])
+            if row.get('Variant Image'):
+                all_image_urls.add(row['Variant Image'])
+            
+            sku = row.get('Variant SKU', '').strip()
+            if not sku:
+                continue
+            
+            has_option_values = False
+            if option_columns:
+                for column_name, _ in self._metafield_columns:
+                    if column_name.split(' (')[0] in option_columns:
+                        if row.get(column_name, '').strip():
+                            has_option_values = True
+                            break
+            
+            if not option_columns or has_option_values:
+                variant = self._parse_variant_with_options(row, option_columns)
+                if variant:
+                    variants.append(variant)
+        
+        product.image_src = list(all_image_urls)
+        
+        if not variants and rows:
+            logger.debug(f"No variants found for product {handle}, creating default variant")
+            default_variant = self._parse_variant(first_row)
+            default_variant.option1_name = None
+            default_variant.option1_value = None
+            default_variant.option2_name = None
+            default_variant.option2_value = None
+            default_variant.option3_name = None
+            default_variant.option3_value = None
+            if default_variant.sku:
+                variants.append(default_variant)
+        
+        if not option_columns and len(variants) > 0:
+            variants = [variants[0]]
+            variants[0].option1_name = None
+            variants[0].option1_value = None
+            variants[0].option2_name = None
+            variants[0].option2_value = None
+            variants[0].option3_name = None
+            variants[0].option3_value = None
+        
+        product.variants = variants
+        
+        self._assign_variant_metafields(product, rows, option_columns)
+        
+        return product
+    
+    def _parse_variant_with_options(
+        self, 
+        row: Dict[str, str], 
+        option_columns: List[str]
+    ) -> Optional[ShopifyVariant]:
+        """
+        Parse variant with dynamic options from metafield columns.
+        
+        Args:
+            row: CSV row
+            option_columns: List of option names to use
+            
+        Returns:
+            ShopifyVariant with options set
+        """
+        variant = self._parse_variant(row)
+        
+        if option_columns:
+            for idx, option_name in enumerate(option_columns):
+                for column_name, _ in self._metafield_columns:
+                    if column_name.split(' (')[0] == option_name:
+                        value = row.get(column_name, '').strip()
+                        if value:
+                            if idx == 0:
+                                variant.option1_name = option_name
+                                variant.option1_value = value
+                            elif idx == 1:
+                                variant.option2_name = option_name
+                                variant.option2_value = value
+                            elif idx == 2:
+                                variant.option3_name = option_name
+                                variant.option3_value = value
+                        break
+        
+        return variant
+    
+    def _assign_variant_metafields(
+        self,
+        product: ShopifyProduct,
+        rows: List[Dict[str, str]],
+        option_columns: List[str]
+    ) -> None:
+        """
+        Assign metafields to variants by matching option values.
+        
+        For each variant, finds its matching CSV row by comparing option values,
+        then extracts and assigns metafields from that row.
+        
+        Args:
+            product: Product with variants
+            rows: All CSV rows for this product
+            option_columns: List of option names used
+        """
+        option_column_names = []
+        for option_name in option_columns:
+            for column_name, _ in self._metafield_columns:
+                if column_name.split(' (')[0] == option_name:
+                    option_column_names.append(column_name)
+                    break
+        
+        for variant in product.variants:
+            matching_row = None
+            
+            for row in rows:
+                if row.get('Variant SKU', '').strip() != variant.sku:
+                    continue
+                
+                if not option_column_names:
+                    matching_row = row
+                    break
+                
+                match = True
+                for idx, column_name in enumerate(option_column_names):
+                    option_value = row.get(column_name, '').strip()
+                    variant_option_value = None
+                    if idx == 0:
+                        variant_option_value = variant.option1_value
+                    elif idx == 1:
+                        variant_option_value = variant.option2_value
+                    elif idx == 2:
+                        variant_option_value = variant.option3_value
+                    
+                    if option_value != (variant_option_value or ''):
+                        match = False
+                        break
+                
+                if match:
+                    matching_row = row
+                    break
+            
+            if matching_row:
+                metafields = {}
+                for column_name, metafield_key in self._metafield_columns:
+                    value = matching_row.get(column_name, '').strip()
+                    if value:
+                        metafields[f'custom.{metafield_key}'] = value
+                variant.metafields = metafields
     
     def _parse_variant(self, row: Dict[str, str]) -> ShopifyVariant:
         """
@@ -203,54 +417,44 @@ class ShopifyCSVParser:
         Note:
             Products with the same handle are grouped together.
             First row with handle has product data, subsequent rows are variants.
+            Dynamically detects options from metafield columns.
         """
         logger.info(f"Parsing Shopify CSV: {self.csv_path}")
         
-        current_product: Optional[ShopifyProduct] = None
         products_parsed = 0
         
         with open(self.csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             
-            # Detect metafield columns from header
             if reader.fieldnames:
                 self._detect_metafield_columns(list(reader.fieldnames))
                 logger.info(f"Detected {len(self._metafield_columns)} metafield columns")
             
-            for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
+            current_handle = None
+            current_rows = []
+            
+            for row_num, row in enumerate(reader, start=2):
                 handle = row.get('Handle', '').strip()
                 
-                
                 if not handle:
-                    # Empty handle = variant row (continue current product)
-                    if current_product:
-                        variant = self._parse_variant(row)
-                        if variant.sku:  # Only add variants with SKU
-                            current_product.variants.append(variant)
+                    if current_rows:
+                        current_rows.append(row)
                     continue
                 
-                # New product (handle is present)
-                if current_product:
-                    # Yield previous product
-                    products_parsed += 1
-                    yield current_product
+                if current_handle and current_rows:
+                    product = self._build_product_from_rows(current_handle, current_rows)
+                    if product:
+                        products_parsed += 1
+                        yield product
                 
-                # Start new product
-                current_product = self._parse_product_base(row)
-                
-                # First row also contains first variant
-                variant = self._parse_variant(row)
-                if variant.sku:
-                    current_product.variants.append(variant)
-                
-                # Add image from first row
-                if row.get('Image Src') and row['Image Src'] not in current_product.image_src:
-                    current_product.image_src.append(row['Image Src'])
+                current_handle = handle
+                current_rows = [row]
             
-            # Yield last product
-            if current_product:
-                products_parsed += 1
-                yield current_product
+            if current_handle and current_rows:
+                product = self._build_product_from_rows(current_handle, current_rows)
+                if product:
+                    products_parsed += 1
+                    yield product
         
         logger.info(f"Parsed {products_parsed} products from CSV")
         

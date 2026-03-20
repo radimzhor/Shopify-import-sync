@@ -49,9 +49,23 @@
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-success btn-lg" onclick="startImport()">
-                    <i class="fas fa-play"></i> Start Import
-                </button>
+                
+                <div class="btn-group mb-3" role="group">
+                    <button class="btn btn-success btn-lg" onclick="startImport()">
+                        <i class="fas fa-play"></i> Normal Import
+                    </button>
+                    <button class="btn btn-warning btn-lg" onclick="startImportWithFixes()" 
+                            title="Applies fixes to Option columns before import (use if variants are split into individual products)">
+                        <i class="fas fa-tools"></i> Import with Option Fixes
+                    </button>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Note:</strong> Use "Import with Option Fixes" if Mergado generates 
+                    incorrect Option columns and variants are being split into individual products. 
+                    This is temporary until Mergado fixes CSV generation.
+                </div>
             </div>
         </div>
     </div>
@@ -215,6 +229,37 @@
         } catch (error) {
             console.error('Failed to start import:', error);
             alert('Failed to start import: ' + error.message);
+        }
+    }
+    
+    async function startImportWithFixes() {
+        const token = window.authManager.getAccessToken();
+        
+        try {
+            const response = await fetch('/api/import/start-with-fixes', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    project_id: currentProjectId,
+                    shop_id: currentShopId
+                })
+            });
+            
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to start import');
+            currentJobId = data.job_id;
+            
+            document.getElementById('step-preview').style.display = 'none';
+            document.getElementById('step-import').style.display = 'block';
+            
+            pollImportStatus(currentJobId);
+
+        } catch (error) {
+            console.error('Failed to start import with fixes:', error);
+            alert('Failed to start import with fixes: ' + error.message);
         }
     }
 

@@ -113,6 +113,10 @@ class ProductImporter:
             product_data['metafields_global_title_tag'] = csv_product.seo_title
             product_data['metafields_global_description_tag'] = csv_product.seo_description
         
+        # Add product options (dynamically detected from metafields)
+        if csv_product.options:
+            product_data['options'] = [{'name': opt} for opt in csv_product.options]
+        
         # Add variants
         variants = []
         for vm in match.variant_matches:
@@ -137,13 +141,14 @@ class ProductImporter:
             if csv_variant.inventory_policy:
                 variant_data['inventory_policy'] = csv_variant.inventory_policy
             
-            # Add options
-            if csv_variant.option1_value:
-                variant_data['option1'] = csv_variant.option1_value
-            if csv_variant.option2_value:
-                variant_data['option2'] = csv_variant.option2_value
-            if csv_variant.option3_value:
-                variant_data['option3'] = csv_variant.option3_value
+            # Add options (only if product has options)
+            if csv_product.options:
+                if csv_variant.option1_value:
+                    variant_data['option1'] = csv_variant.option1_value
+                if csv_variant.option2_value:
+                    variant_data['option2'] = csv_variant.option2_value
+                if csv_variant.option3_value:
+                    variant_data['option3'] = csv_variant.option3_value
             
             # Add other fields
             if csv_variant.grams:
@@ -153,7 +158,25 @@ class ProductImporter:
             if csv_variant.requires_shipping:
                 variant_data['requires_shipping'] = csv_variant.requires_shipping.lower() == 'true'
             
+            # Add variant metafields
+            if csv_variant.metafields:
+                variant_metafields = []
+                for key, value in csv_variant.metafields.items():
+                    namespace, field_key = key.split('.', 1)
+                    variant_metafields.append({
+                        'namespace': namespace,
+                        'key': field_key,
+                        'value': value,
+                        'type': 'single_line_text_field'
+                    })
+                variant_data['metafields'] = variant_metafields
+            
             variants.append(variant_data)
+        
+        # Option cleanup for single-variant products
+        if not csv_product.options and len(variants) == 1:
+            for key in ['option1', 'option2', 'option3']:
+                variants[0].pop(key, None)
         
         product_data['variants'] = variants
         
@@ -161,7 +184,7 @@ class ProductImporter:
         if csv_product.image_src:
             product_data['images'] = [{'src': url} for url in csv_product.image_src if url]
         
-        # Add metafields (Shopify expects specific format)
+        # Add product-level metafields (Shopify expects specific format)
         if csv_product.metafields:
             metafields = []
             for key, value in csv_product.metafields.items():
@@ -308,6 +331,81 @@ class ProductImporter:
             yield {'status': 'failed', 'error': str(e)}
             raise
     
+    def _assign_variant_images(
+        self,
+        product_id: str,
+        created_product: Dict[str, Any],
+        csv_product: Any,
+        original_images: List[str]
+    ) -> None:
+        """
+        Assign images to specific variants after product creation.
+        
+        Normalizes URLs by stripping query params and maps Shopify-assigned
+        image IDs to variants based on the Variant Image column.
+        
+        Args:
+            product_id: Shopify product ID
+            created_product: Product data returned from Shopify
+            csv_product: Original CSV product data
+            original_images: List of original image URLs we sent
+        """
+        if not created_product.get('images'):
+            return
+        
+        shopify_images = created_product['images']
+        
+        if len(shopify_images) != len(original_images):
+            logger.warning(
+                f"Image count mismatch for product {product_id}: "
+                f"sent {len(original_images)}, got {len(shopify_images)}. "
+                f"Skipping variant image assignment."
+            )
+            return
+        
+        url_to_image_id = {}
+        for i, original_url in enumerate(original_images):
+            normalized_url = original_url.split('?')[0]
+            if i < len(shopify_images):
+                url_to_image_id[normalized_url] = shopify_images[i]['id']
+        
+        for csv_variant in csv_product.variants:
+            if not csv_variant.image_src:
+                continue
+            
+            normalized_variant_url = csv_variant.image_src.split('?')[0]
+            image_id = url_to_image_id.get(normalized_variant_url)
+            
+            if not image_id:
+                logger.debug(
+                    f"No image ID found for variant {csv_variant.sku} "
+                    f"with image {normalized_variant_url}"
+                )
+                continue
+            
+            shopify_variant = None
+            for variant in created_product.get('variants', []):
+                if variant.get('sku') == csv_variant.sku:
+                    shopify_variant = variant
+                    break
+            
+            if shopify_variant:
+                try:
+                    update_data = {
+                        'variant': {
+                            'id': shopify_variant['id'],
+                            'image_id': image_id
+                        }
+                    }
+                    self.shopify.update_variant(shopify_variant['id'], update_data)
+                    logger.debug(
+                        f"Assigned image {image_id} to variant {csv_variant.sku}"
+                    )
+                except APIError as e:
+                    logger.warning(
+                        f"Failed to assign image to variant {csv_variant.sku}: {e}"
+                    )
+    
     def _create_product(self, match: ProductMatch) -> Dict[str, Any]:
         """
         Create new product in Shopify.
@@ -327,6 +425,14 @@ class ProductImporter:
             f"Created product {result['product']['id']} "
             f"with {len(result['product']['variants'])} variants"
         )
+        
+        if match.csv_product.image_src:
+            self._assign_variant_images(
+                result['product']['id'],
+                result['product'],
+                match.csv_product,
+                match.csv_product.image_src
+            )
         
         return result
     

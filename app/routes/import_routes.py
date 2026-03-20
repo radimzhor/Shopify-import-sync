@@ -17,6 +17,7 @@ from app.services import (
     ShopifyService,
     CSVDownloader,
     ShopifyCSVParser,
+    CSVOptionFixer,
     ProductMatcher,
     ShopifyIDWriteback,
 )
@@ -118,6 +119,109 @@ def _run_import_in_background(app, job_id: int, access_token: str, shop_id: str)
                     db.session.commit()
             except Exception:
                 logger.error(f"[BG] Failed to update job {job_id} status after error")
+
+
+def _run_import_with_fixes_in_background(app, job_id: int, access_token: str, shop_id: str):
+    """
+    Run the full import pipeline with CSV option fixes applied.
+    
+    TEMPORARY: This applies transformations to fix Mergado's incorrect Option columns.
+    Remove when Mergado generates correct CSV.
+    
+    Uses the Flask app context so SQLAlchemy sessions work correctly.
+    Updates the ImportJob row after every product so the polling endpoint
+    always has fresh numbers.
+    """
+    import gc
+
+    with app.app_context():
+        import_job = ImportJob.query.get(job_id)
+        if not import_job:
+            logger.error(f"[BG-FIX] Import job {job_id} not found")
+            return
+
+        project = import_job.project
+
+        try:
+            mergado_client = MergadoClient(access_token)
+            shopify_service = ShopifyService(mergado_client, shop_id)
+
+            logger.info(f"[BG-FIX] Job {job_id}: downloading CSV from {project.output_url}")
+            downloader = CSVDownloader()
+            csv_path = downloader.download(
+                project.output_url,
+                cache_key=project.mergado_project_id,
+            )
+            
+            # TEMPORARY: Apply CSV option fixes
+            logger.info(f"[BG-FIX] Job {job_id}: applying CSV option fixes")
+            fixer = CSVOptionFixer()
+            fixed_csv_path = fixer.fix_csv(csv_path)
+            logger.info(f"[BG-FIX] Job {job_id}: CSV fixes applied, saved to {fixed_csv_path}")
+            
+            # Parse the FIXED CSV (not original)
+            parser = ShopifyCSVParser(fixed_csv_path)
+            csv_products = parser.parse_all()
+
+            logger.info(f"[BG-FIX] Job {job_id}: parsed {len(csv_products)} products, matching...")
+            matcher = ProductMatcher(shopify_service)
+            matches = matcher.match_products(csv_products)
+
+            del csv_products, parser, downloader, matcher, fixer
+            gc.collect()
+
+            logger.info(f"[BG-FIX] Job {job_id}: matched {len(matches)} products, importing...")
+            importer = ProductImporter(shopify_service, import_job, progress_callback=None)
+
+            for _progress in importer.import_products_iter(matches):
+                pass
+
+            del matches
+            gc.collect()
+
+            logger.info(
+                f"[BG-FIX] Job {job_id} done: "
+                f"{import_job.success_count} success, "
+                f"{import_job.failed_count} failed, "
+                f"{import_job.skipped_count} skipped"
+            )
+
+            # Automatically write back Shopify IDs to Mergado after successful import
+            try:
+                if import_job.status == ImportStatus.COMPLETED.value and import_job.success_count > 0:
+                    logger.info(f"[BG-FIX] Job {job_id}: Starting automatic ID writeback")
+                    
+                    writeback_service = ShopifyIDWriteback(mergado_client, project)
+                    writeback_result = writeback_service.writeback_from_import_job(job_id)
+                    
+                    if writeback_result.get('success'):
+                        logger.info(
+                            f"[BG-FIX] Job {job_id}: Auto-writeback succeeded - "
+                            f"{writeback_result.get('mappings_count', 0)} mappings stored"
+                        )
+                    else:
+                        logger.warning(
+                            f"[BG-FIX] Job {job_id}: Auto-writeback failed - "
+                            f"{writeback_result.get('error', 'Unknown error')}"
+                        )
+                else:
+                    logger.info(
+                        f"[BG-FIX] Job {job_id}: Skipping auto-writeback "
+                        f"(status={import_job.status}, success_count={import_job.success_count})"
+                    )
+            except Exception as wb_error:
+                logger.error(f"[BG-FIX] Job {job_id}: Auto-writeback error: {wb_error}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"[BG-FIX] Job {job_id} failed: {e}", exc_info=True)
+            try:
+                import_job = ImportJob.query.get(job_id)
+                if import_job:
+                    import_job.status = ImportStatus.FAILED.value
+                    import_job.error_message = str(e)
+                    db.session.commit()
+            except Exception:
+                logger.error(f"[BG-FIX] Failed to update job {job_id} status after error")
 
 
 @import_bp.route('/preview', methods=['POST'])
@@ -274,6 +378,76 @@ def start_import():
     app = current_app._get_current_object()
     thread = threading.Thread(
         target=_run_import_in_background,
+        args=(app, import_job.id, access_token, shop_id),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({
+        'job_id': import_job.id,
+        'status': import_job.status,
+    })
+
+
+@import_bp.route('/start-with-fixes', methods=['POST'])
+@require_auth
+def start_import_with_fixes():
+    """
+    Start product import job with CSV option fixes applied.
+    
+    TEMPORARY: This applies transformations to fix Mergado's incorrect
+    Option columns before import. Remove when Mergado generates correct CSV.
+    
+    Expects:
+        {
+            "project_id": "123",
+            "shop_id": "456",
+            "force_create": false (optional)
+        }
+    
+    Returns:
+        Import job ID for tracking progress
+    """
+    data = request.get_json()
+    project_id = data.get('project_id')
+    shop_id = data.get('shop_id')
+    force_create = data.get('force_create', False)
+    
+    if not project_id or not shop_id:
+        raise BadRequest("project_id and shop_id required")
+    
+    # Get project from database (try both database ID and Mergado project ID)
+    try:
+        project = Project.query.get(int(project_id))
+    except (ValueError, TypeError):
+        project = None
+
+    if not project:
+        project = Project.query.filter_by(mergado_project_id=str(project_id)).first()
+
+    if not project:
+        raise BadRequest(f"Project with ID {project_id} not found")
+    if not project.output_url:
+        raise BadRequest("Project is missing output URL. Please reload the project list.")
+
+    auth_header = request.headers.get('Authorization', '')
+    access_token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
+    if not access_token:
+        raise BadRequest("Access token required")
+
+    import_job = ImportJob(
+        project_id=project.id,
+        status=ImportStatus.PENDING.value,
+    )
+    db.session.add(import_job)
+    db.session.commit()
+
+    logger.info(f"Created import job {import_job.id} for project {project_id} (with CSV fixes)")
+
+    # Launch import with fixes in a background thread
+    app = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_run_import_with_fixes_in_background,
         args=(app, import_job.id, access_token, shop_id),
         daemon=True,
     )

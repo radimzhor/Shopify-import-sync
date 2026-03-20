@@ -1,6 +1,7 @@
 # ADR-001: Batch Rewriting Rule for Shopify ID Writeback
 
 ## Status
+**Outdated** - 2026-03-16 (use .Claude/skills/mergadp-custom-rule.md instead)
 **Accepted** - 2026-03-04
 
 ## Context

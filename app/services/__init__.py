@@ -13,6 +13,7 @@ from app.services.mergado_client import MergadoClient
 from app.services.shopify_service import ShopifyService
 from app.services.csv_downloader import CSVDownloader
 from app.services.shopify_csv_parser import ShopifyCSVParser, ShopifyProduct, ShopifyVariant
+from app.services.csv_option_fixer import CSVOptionFixer
 from app.services.product_matcher import ProductMatcher, ProductMatch, VariantMatch, MatchPreview, MatchAction
 from app.services.product_importer import ProductImporter
 from app.services.shopify_id_writeback import ShopifyIDWriteback
@@ -32,6 +33,7 @@ __all__ = [
     'ShopifyCSVParser',
     'ShopifyProduct',
     'ShopifyVariant',
+    'CSVOptionFixer',
     'ProductMatcher',
     'ProductMatch',
     'VariantMatch',
